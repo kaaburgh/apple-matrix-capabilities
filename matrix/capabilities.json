@@ -1,0 +1,319 @@
+{
+ "schema": 1,
+ "status": "seed - measurements by Precisit, 2026-10",
+ "evidence_tags": [
+  "observed",
+  "reported",
+  "inferred",
+  "unknown"
+ ],
+ "rate_units": "GOPS best of five tiles, 2048x4096x4096, mode::multiply; vs_f16 divides the same receipt's f16*f16->f32 rate",
+ "chips": {
+  "m5-air": {
+   "device_name": "Apple M5",
+   "architecture": "applegpu_g17g",
+   "memory_gb": 32,
+   "mlx_at_measurement": "0.32.3",
+   "float_lanes": {
+    "e4m3*e4m3->f32": {
+     "gops_best": 14061.928820519672,
+     "vs_f16": 1.078,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "t_e4m3*e4m3->f32": {
+     "gops_best": 14522.928389293847,
+     "vs_f16": 1.114,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "mx_e4m3*e4m3->f32": {
+     "gops_best": 10517.146729664502,
+     "vs_f16": 0.807,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "mx_fp4*fp4->f32": {
+     "gops_best": 9505.808622650982,
+     "vs_f16": 0.729,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "f16_mx_fp4->f32": {
+     "gops_best": 9586.535153109335,
+     "vs_f16": 0.735,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "f16*f16->f32": {
+     "gops_best": 13039.851251390714,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "fp4*fp4->f32": {
+     "gops_best": 12081.569292143662,
+     "vs_f16": 0.927,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    },
+    "f16*fp4->f32": {
+     "gops_best": 12205.674505676096,
+     "vs_f16": 0.936,
+     "receipt": "receipts/m5-air/lane_sweep_v4.json"
+    }
+   },
+   "mixed_lanes": {
+    "f16_mx_fp4->f32": {
+     "gops_best": 9528.215377591598,
+     "vs_f16": 0.726,
+     "receipt": "receipts/m5-air/lane_sweep_mixed.json"
+    },
+    "f16*fp4->f32": {
+     "gops_best": 12510.751955122592,
+     "vs_f16": 0.953,
+     "receipt": "receipts/m5-air/lane_sweep_mixed.json"
+    },
+    "f16*e4m3->f32": {
+     "gops_best": 13742.638809289692,
+     "vs_f16": 1.047,
+     "receipt": "receipts/m5-air/lane_sweep_mixed.json"
+    },
+    "f16_mx_e4m3->f32": {
+     "gops_best": 9742.606696390585,
+     "vs_f16": 0.742,
+     "receipt": "receipts/m5-air/lane_sweep_mixed.json"
+    }
+   },
+   "integer_lanes": {
+    "f16*f16->f32": {
+     "gops_best": 12042.514035324448,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "f16*f16->f16": {
+     "gops_best": 12563.071415421593,
+     "vs_f16": 1.043,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "bf16*bf16->f32": {
+     "gops_best": 11727.727448276453,
+     "vs_f16": 0.974,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "i8*i8->i32": {
+     "gops_best": 24470.8411611302,
+     "vs_f16": 2.032,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "f16*i8->f32": {
+     "gops_best": 11259.950054503382,
+     "vs_f16": 0.935,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "f16*i4b->f32": {
+     "gops_best": 13353.905167432547,
+     "vs_f16": 1.109,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    },
+    "i8*i4b->i32": {
+     "gops_best": 21150.758876509637,
+     "vs_f16": 1.756,
+     "receipt": "receipts/m5-air/integer_lanes.json"
+    }
+   },
+   "features": {
+    "int8_accelerated": true,
+    "fp8_accelerated": false,
+    "fp4_accelerated": false
+   }
+  },
+  "m5-max": {
+   "device_name": "Apple M5 Max",
+   "architecture": "applegpu_g17s",
+   "memory_gb": 128,
+   "mlx_at_measurement": "0.32.3",
+   "float_lanes": {
+    "e4m3*e4m3->f32": {
+     "gops_best": 54589.825972882885,
+     "vs_f16": 1.013,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "t_e4m3*e4m3->f32": {
+     "gops_best": 54345.17628899407,
+     "vs_f16": 1.009,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "mx_e4m3*e4m3->f32": {
+     "gops_best": 45949.57680113758,
+     "vs_f16": 0.853,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "mx_fp4*fp4->f32": {
+     "gops_best": 39990.01227340366,
+     "vs_f16": 0.742,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "f16_mx_fp4->f32": {
+     "gops_best": 44764.74287437612,
+     "vs_f16": 0.831,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "f16*f16->f32": {
+     "gops_best": 53885.3316348217,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "fp4*fp4->f32": {
+     "gops_best": 47734.28998489446,
+     "vs_f16": 0.886,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    },
+    "f16*fp4->f32": {
+     "gops_best": 55954.789797530066,
+     "vs_f16": 1.038,
+     "receipt": "receipts/m5-max/lane_sweep_v4.json"
+    }
+   },
+   "mixed_lanes": {},
+   "integer_lanes": {
+    "f16*f16->f32": {
+     "gops_best": 62082.472252306005,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "f16*f16->f16": {
+     "gops_best": 62057.35594153163,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "bf16*bf16->f32": {
+     "gops_best": 62520.20729585634,
+     "vs_f16": 1.007,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "i8*i8->i32": {
+     "gops_best": 116368.90804620406,
+     "vs_f16": 1.874,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "f16*i8->f32": {
+     "gops_best": 61643.91165807172,
+     "vs_f16": 0.993,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "f16*i4b->f32": {
+     "gops_best": 61507.69893179103,
+     "vs_f16": 0.991,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    },
+    "i8*i4b->i32": {
+     "gops_best": 95014.83139188543,
+     "vs_f16": 1.53,
+     "receipt": "receipts/m5-max/integer_lanes.json"
+    }
+   },
+   "features": {
+    "int8_accelerated": true,
+    "fp8_accelerated": false,
+    "fp4_accelerated": false
+   }
+  },
+  "m6": {
+   "device_name": "Apple M6",
+   "architecture": "applegpu_g18g",
+   "memory_gb": 32,
+   "mlx_at_measurement": "0.32.3",
+   "float_lanes": {
+    "e4m3*e4m3->f32": {
+     "gops_best": 28800.11845840189,
+     "vs_f16": 2.078,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "t_e4m3*e4m3->f32": {
+     "gops_best": 30006.330214444137,
+     "vs_f16": 2.165,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "mx_e4m3*e4m3->f32": {
+     "gops_best": 15610.378332321256,
+     "vs_f16": 1.126,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "mx_fp4*fp4->f32": {
+     "gops_best": 11005.094825676526,
+     "vs_f16": 0.794,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "f16_mx_fp4->f32": {
+     "gops_best": 11778.883199076905,
+     "vs_f16": 0.85,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "f16*f16->f32": {
+     "gops_best": 13857.993467533226,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "fp4*fp4->f32": {
+     "gops_best": 14918.882464370854,
+     "vs_f16": 1.077,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    },
+    "f16*fp4->f32": {
+     "gops_best": 15143.673261878674,
+     "vs_f16": 1.093,
+     "receipt": "receipts/m6/lane_sweep_v4.json"
+    }
+   },
+   "mixed_lanes": {
+    "f16_mx_fp4->f32": {
+     "gops_best": 11686.737661321,
+     "vs_f16": 0.836,
+     "receipt": "receipts/m6/lane_sweep_mixed.json"
+    },
+    "f16*fp4->f32": {
+     "gops_best": 15053.142851251901,
+     "vs_f16": 1.077,
+     "receipt": "receipts/m6/lane_sweep_mixed.json"
+    },
+    "f16*e4m3->f32": {
+     "gops_best": 17687.080643733574,
+     "vs_f16": 1.265,
+     "receipt": "receipts/m6/lane_sweep_mixed.json"
+    },
+    "f16_mx_e4m3->f32": {
+     "gops_best": 11527.777226041799,
+     "vs_f16": 0.824,
+     "receipt": "receipts/m6/lane_sweep_mixed.json"
+    }
+   },
+   "integer_lanes": {
+    "f16*f16->f32": {
+     "gops_best": 13608.434927899638,
+     "vs_f16": 1.0,
+     "receipt": "receipts/m6/integer_lanes.json"
+    },
+    "i8*i8->i32": {
+     "gops_best": 26924.94624163275,
+     "vs_f16": 1.979,
+     "receipt": "receipts/m6/integer_lanes.json"
+    },
+    "i8*i4b->i32": {
+     "gops_best": 23526.8480280957,
+     "vs_f16": 1.729,
+     "receipt": "receipts/m6/integer_lanes.json"
+    }
+   },
+   "features": {
+    "int8_accelerated": true,
+    "fp8_accelerated": true,
+    "fp4_accelerated": false
+   }
+  }
+ },
+ "unknown_chips": [
+  "m1",
+  "m2",
+  "m3",
+  "m4",
+  "m5-pro",
+  "m5-ultra",
+  "m6-pro",
+  "m6-max",
+  "a-series"
+ ]
+}

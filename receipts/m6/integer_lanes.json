@@ -1,0 +1,67 @@
+{
+ "mlx": "0.32.3",
+ "device": {
+  "device_name": "Apple M6",
+  "max_recommended_working_set_size": 31138512896,
+  "memory_size": 34359738368,
+  "architecture": "applegpu_g18g",
+  "max_buffer_length": 20100448256,
+  "resource_limit": 499000
+ },
+ "relaxed": false,
+ "calls": 4,
+ "reps": 7,
+ "rows": [
+  {
+   "lane": "f16*f16->f32",
+   "tile": [
+    64,
+    128,
+    4
+   ],
+   "status": "ok",
+   "rel_err": 2.8232836979616335e-07,
+   "M": 2048,
+   "K": 4096,
+   "N": 4096,
+   "ms_best": 5.049770756158978,
+   "ms_med": 5.346927006030455,
+   "gops_best": 13608.434927899638,
+   "gops_med": 12852.144167761355
+  },
+  {
+   "lane": "i8*i8->i32",
+   "tile": [
+    64,
+    128,
+    4
+   ],
+   "status": "ok",
+   "rel_err": 0.0,
+   "M": 2048,
+   "K": 4096,
+   "N": 4096,
+   "ms_best": 2.5522604992147535,
+   "ms_med": 2.6071667671203613,
+   "gops_best": 26924.94624163275,
+   "gops_med": 26357.91373326735
+  },
+  {
+   "lane": "i8*i4b->i32",
+   "tile": [
+    64,
+    128,
+    4
+   ],
+   "status": "ok",
+   "rel_err": 0.0,
+   "M": 2048,
+   "K": 4096,
+   "N": 4096,
+   "ms_best": 2.920896018622443,
+   "ms_med": 2.9873125022277236,
+   "gops_best": 23526.8480280957,
+   "gops_med": 23003.779043790677
+  }
+ ]
+}

@@ -1,0 +1,48 @@
+# Methods
+
+Everything in `matrix/` comes from probes in `probes/`, run on real hardware. This file is
+the protocol and the traps, so numbers from different contributors are comparable and the
+claims stay scoped.
+
+## The protocol
+
+`lane_sweep.py` runs each lane through `mpp::tensor_ops::matmul2d` with operands in device
+memory:
+
+- shape 2048×4096×4096 (M×K×N), fixed;
+- five tile configurations; two warm-up calls; five timed calls per tile; the best result is
+  kept (a burst figure);
+- `matmul2d_descriptor::mode::multiply` — never `multiply_accumulate`;
+- correctness first: constant encodings (1.0 × 2.0) must produce the expected product;
+  scaled lanes also run a per-n/per-kb block-scale check; a lane that fails its checks is
+  reported `wrong` and its rate is not used;
+- a receipt (`lane_sweep.json`) records device identity, MLX version, per-lane status, rates
+  per tile, and the check results.
+
+## Traps (each one cost us rework)
+
+- **`multiply_accumulate` with a recycled output buffer silently adds old results into new
+  ones.** It produced exact-2×/3× "anomalies" in an earlier sweep. Use `mode::multiply`; if
+  you deliberately accumulate, initialize the destination and say so.
+- **Relaxed precision differs per lane.** The scaled lanes run with different
+  relaxed-precision settings; a scaled-vs-plain comparison is a comparison of the tested
+  paths, not of the scale bytes alone.
+- **Warm-up matters.** First calls include pipeline compilation. The protocol warms up, and
+  still keeps the best of several samples as a burst figure.
+- **Burst is not sustained.** These are short probes. A fanless machine declines under
+  sustained load; do not read a lane rate as a model rate.
+- **Denominators.** All `vs_f16` values divide the same receipt's `f16*f16->f32` at the same
+  shape and tile policy. Do not compare across shapes, tiles, or different scripts without
+  saying so.
+- **Availability is gated.** The tensor ops require recent Xcode/SDK headers. A lane may fail
+  to compile on an older toolchain, and a chip may run a lane at fp16 speed (no acceleration)
+  rather than failing. Record which it is; both are results.
+- **`MLX_ENABLE_TF32` does not touch these lanes** (they are fp16/bf16/8-bit operand probes,
+  not float32 matmuls). State the setting you ran with.
+
+## What a rate means
+
+A row says: this GPU, this toolchain, this shape, this tile policy — measured at this rate.
+It does not say how a model will run, what a kernel's overhead will cost, or what the units
+physically are. Where a row is `inferred` or `reported`, the JSON says so and links the
+source.
