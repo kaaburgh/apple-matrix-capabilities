@@ -10,11 +10,16 @@ MetalPerformancePrimitives headers and the source of projects like MLX, both ver
 Every project ends up measuring the same things separately. This repository collects the
 measurements in one place, one receipt per cell.
 
+**Start here:** read the map in [`matrix/MATRIX.md`](matrix/MATRIX.md) — or the raw grid in
+[`matrix/capabilities.csv`](matrix/capabilities.csv). Both are generated from
+[`matrix/capabilities.json`](matrix/capabilities.json).
+
 ## What is here
 
 | Path | |
 |---|---|
 | `matrix/capabilities.json` | The map: per chip, measured lanes (rate and vs-fp16), features, and the receipt behind each cell |
+| `matrix/MATRIX.md`, `matrix/capabilities.csv` | Generated views (do not edit by hand; run `tools/build_matrix.py`) |
 | `probes/lane_sweep.py` | The probe that produces a receipt: one operand-format sweep through `mpp::tensor_ops::matmul2d` |
 | `receipts/<chip>/` | The receipts behind every observed cell |
 | `METHODS.md` | Protocol, traps, and what the numbers do and do not mean |

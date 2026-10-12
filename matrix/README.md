@@ -1,6 +1,12 @@
 # The matrix
 
-`capabilities.json` is the machine-readable map; this page explains its fields.
+`capabilities.json` is the machine-readable map and the single source of truth. The views
+[`MATRIX.md`](MATRIX.md) and [`capabilities.csv`](capabilities.csv) are generated from it by
+[`tools/build_matrix.py`](../tools/build_matrix.py) — do not edit them by hand. A JSON Schema
+for contributors is in [`schema.json`](schema.json); the build tool performs the stricter
+checks (receipt existence, ratio recomputation) that a schema cannot.
+
+## Fields
 
 - `schema`: format version (1).
 - `chips.<key>`: one object per measured chip. `device_name`, `architecture` and `memory_gb`

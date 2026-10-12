@@ -23,7 +23,11 @@ the Pro/Max/Ultra variants, and future generations are all `unknown` today.
 3. Fill your chip's entries in `matrix/capabilities.json` from the receipt, each cell
    referring to it. Leave any cell you did not measure absent or `unknown`.
 
-4. Open a PR. In the description, name the exact device, OS build, Xcode/SDK version and MLX
+4. Regenerate the views and commit them: `python tools/build_matrix.py`. CI (on PRs and on
+   `main`) validates the JSON, checks every `vs_f16` against the receipt it cites, and fails if
+   the views are stale. Edit `capabilities.json` only — never the generated files.
+
+5. Open a PR. In the description, name the exact device, OS build, Xcode/SDK version and MLX
    version (they are in the receipt), and whether the machine ran on battery or AC.
 
 ## Rules

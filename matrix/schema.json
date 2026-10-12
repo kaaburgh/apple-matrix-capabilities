@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/precisit/apple-matrix-capabilities/matrix/schema.json",
+  "title": "Apple matrix capabilities",
+  "type": "object",
+  "required": ["schema", "chips"],
+  "properties": {
+    "schema": {"const": 1},
+    "status": {"type": "string"},
+    "evidence_tags": {
+      "type": "array",
+      "items": {"enum": ["observed", "reported", "inferred", "unknown"]}
+    },
+    "rate_units": {"type": "string"},
+    "unknown_chips": {"type": "array", "items": {"type": "string"}},
+    "chips": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["device_name", "architecture", "memory_gb", "evidence"],
+        "properties": {
+          "device_name": {"type": "string"},
+          "architecture": {"type": "string"},
+          "memory_gb": {"type": "number", "exclusiveMinimum": 0},
+          "mlx_at_measurement": {"type": "string"},
+          "evidence": {"enum": ["observed", "reported", "inferred"]},
+          "features": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "float_lanes": {"$ref": "#/definitions/lanes"},
+          "mixed_lanes": {"$ref": "#/definitions/lanes"},
+          "integer_lanes": {"$ref": "#/definitions/lanes"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "lanes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["gops_best", "vs_f16", "receipt"],
+        "properties": {
+          "gops_best": {"type": "number", "exclusiveMinimum": 0},
+          "vs_f16": {"type": "number"},
+          "receipt": {"type": "string"}
+        }
+      }
+    }
+  }
+}
