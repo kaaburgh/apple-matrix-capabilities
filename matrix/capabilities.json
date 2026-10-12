@@ -332,102 +332,102 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 28915.2,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 2.095
+     "gops_best": 28378.4,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 2.044
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 26160.6,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 1.895
+     "gops_best": 26114.6,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 1.881
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 14344.7,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 1.039
+     "gops_best": 14321.0,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 1.032
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 10627.9,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 0.77
+     "gops_best": 10635.5,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 0.766
     },
     "f16*f16->f32": {
-     "gops_best": 13805.2,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
+     "gops_best": 13881.1,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 14847.8,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 1.076
+     "gops_best": 14945.5,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 1.077
     },
     "f16*f16->f16": {
-     "gops_best": 13981.34547373479,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 1.033
+     "gops_best": 13804.63571186164,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 1.06
     },
     "bf16*bf16->f32": {
-     "gops_best": 13486.940778982615,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 0.996
+     "gops_best": 13864.224972725664,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 1.064
     },
     "f32*f32->f32": {
-     "gops_best": 6806.7,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 0.493
+     "gops_best": 6988.2,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 0.503
     },
     "strict_f32*f32->f32": {
-     "gops_best": 4259.6,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 0.309
+     "gops_best": 4255.3,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 0.307
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 11495.2,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 0.833
+     "gops_best": 11584.9,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 0.835
     },
     "f16*fp4->f32": {
-     "gops_best": 15142.6,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 1.097
+     "gops_best": 15262.5,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 1.1
     },
     "f16*e4m3->f32": {
-     "gops_best": 16963.6,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 1.229
+     "gops_best": 16979.0,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 1.223
     },
     "f16_mx_e4m3->f32": {
-     "gops_best": 11072.4,
-     "receipt": "receipts/m6/lane_sweep_v2.json",
-     "vs_f16": 0.802
+     "gops_best": 11069.9,
+     "receipt": "receipts/m6/lane_sweep_v2b.json",
+     "vs_f16": 0.797
     },
     "f16*i8->f32": {
-     "gops_best": 12569.557955420418,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 0.929
+     "gops_best": 12710.55391091599,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 0.976
     },
     "f16*i4b->f32": {
-     "gops_best": 16482.249711504992,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 1.218
+     "gops_best": 16572.09682824311,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 1.272
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 28663.471790605206,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 2.118
+     "gops_best": 28143.17451105205,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 2.16
     },
     "i8*i4b->i32": {
-     "gops_best": 26816.268725664908,
-     "receipt": "receipts/m6/integer_lanes_v2.json",
-     "vs_f16": 1.981
+     "gops_best": 26818.554917080677,
+     "receipt": "receipts/m6/integer_lanes_v2b.json",
+     "vs_f16": 2.059
     }
    },
    "gpu_cores": 12,
-   "note": "Measured on the 12-core M6 SKU. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts (including the one-tile integer lanes) are preserved."
+   "note": "Measured on the 12-core M6 SKU, on a machine shared with other occasional users: cells cite the clean-monitored schema-2 rerun (lane_sweep_v2b.json, integer_lanes_v2b.json; process/load log kept with the run notes). Earlier receipts are preserved; the transposed fp8 lanes read 8-13% higher in the pre-v2 receipt, which is not resolved."
   }
  },
  "unknown_chips": [

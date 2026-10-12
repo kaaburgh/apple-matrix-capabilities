@@ -37,6 +37,9 @@ device memory:
 Benchmark on a quiet, thermally settled machine; run one benchmark at a time; note AC/battery
 and low-power mode in the PR description; let the machine cool between sweeps. Background GPU
 work distorts a burst figure, and a fanless machine's sustained rate is not its burst rate.
+On a machine shared with other users or agents, sample `ps` and the load average before the
+run and periodically while it runs, keep that log with your run notes, and re-run rather than
+publish if anything else was active — a receipt cannot prove the machine was alone.
 
 ## Traps (each one cost us rework)
 
