@@ -32,9 +32,18 @@ Lanes:
   f16_mx_e4m3 f16 x e4m3 + UE8M0 plane (weights-only staging shape)
   f32*f32     fp32 x fp32 (relaxed, like the other unscaled lanes)
   strict_f32  fp32 x fp32 with relaxed_precision off
+  strict_f16  fp16 x fp16 with relaxed_precision off
+  strict_e4m3 untransposed fp8 with relaxed_precision off
+  relaxed_mx_e4m3  the scaled fp8 lane with relaxed_precision on
+                   (separates the scale-plane cost from the relaxed flag)
+  e5m2        fp8 e5m2 (the other 8-bit float: wider range, 2 mantissa bits)
+  strict_e5m2 e5m2 with relaxed_precision off
+  t_e5m2      transposed e5m2
+  f16*e5m2    f16 x e5m2 (unscaled mixed)
+  mx_e5m2     e5m2 x e5m2 + UE8M0 plane
 
 Unscaled lanes run with relaxed_precision on (as in the original sweep) and
-scaled lanes off; the lane name `strict_` marks the exception. Every receipt
+scaled lanes off; `strict_` and `relaxed_` mark the exceptions. Every receipt
 records the flag per lane. mode::multiply only.
 """
 
@@ -127,8 +136,25 @@ LANES = {
     "f16_mx_e4m3->f32": ("half", "half", "metal::metal_fp8_e4m3_format", "uchar", "float", True, True),
     "f32*f32->f32": ("float", "float", "float", "float", "float", False, False),
     "strict_f32*f32->f32": ("float", "float", "float", "float", "float", False, False),
+    "strict_f16*f16->f32": ("half", "half", "half", "half", "float", False, False),
+    "strict_e4m3*e4m3->f32": ("metal::metal_fp8_e4m3_format", "uchar", "metal::metal_fp8_e4m3_format", "uchar", "float", False, False),
+    "relaxed_mx_e4m3*e4m3->f32": ("metal::metal_fp8_e4m3_format", "uchar", "metal::metal_fp8_e4m3_format", "uchar", "float", True, True),
+    "e5m2*e5m2->f32": ("metal::metal_fp8_e5m2_format", "uchar", "metal::metal_fp8_e5m2_format", "uchar", "float", False, False),
+    "strict_e5m2*e5m2->f32": ("metal::metal_fp8_e5m2_format", "uchar", "metal::metal_fp8_e5m2_format", "uchar", "float", False, False),
+    "t_e5m2*e5m2->f32": ("metal::metal_fp8_e5m2_format", "uchar", "metal::metal_fp8_e5m2_format", "uchar", "float", False, True),
+    "f16*e5m2->f32": ("half", "half", "metal::metal_fp8_e5m2_format", "uchar", "float", False, False),
+    "mx_e5m2*e5m2->f32": ("metal::metal_fp8_e5m2_format", "uchar", "metal::metal_fp8_e5m2_format", "uchar", "float", True, True),
 }
-RELAXED_OFF = {"strict_f32*f32->f32"}  # unscaled lanes default to relaxed on
+# relaxed_precision per lane: unscaled lanes default on, scaled lanes default
+# off; these are the explicit exceptions. `strict_` marks relaxed off, `relaxed_`
+# marks a scaled lane with relaxed on.
+RELAXED = {"strict_f32*f32->f32": False, "strict_f16*f16->f32": False,
+           "strict_e4m3*e4m3->f32": False, "relaxed_mx_e4m3*e4m3->f32": True,
+           "strict_e5m2*e5m2->f32": False}
+
+
+def lane_relaxed(lane):
+    return RELAXED.get(lane, not LANES[lane][5])
 
 TILES = [(64, 128, 4), (64, 64, 2), (64, 64, 4), (64, 32, 4), (128, 128, 8)]
 CHK = (64, 1024, 256)
@@ -139,19 +165,16 @@ RATE = (2048, 4096, 4096)
 VALUES = np.array([0.5, -0.5, 1.0, -1.0, 2.0, -2.0, 3.0, -3.0, 4.0, -4.0], dtype=np.float32)
 FP4_BITS = np.array([0x1, 0x9, 0x2, 0xA, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE], dtype=np.uint8)
 FP8_BITS = np.array([0x30, 0xB0, 0x38, 0xB8, 0x40, 0xC0, 0x44, 0xC4, 0x48, 0xC8], dtype=np.uint8)
+FP8_E5M2_BITS = np.array([0x38, 0xB8, 0x3C, 0xBC, 0x40, 0xC0, 0x42, 0xC2, 0x44, 0xC4], dtype=np.uint8)
 SCALE_VALUES = np.array([0.5, 1.0, 2.0], dtype=np.float32)
 SCALE_BITS = np.array([0x7E, 0x7F, 0x80], dtype=np.uint8)
-
-
-def lane_relaxed(lane):
-    if lane in RELAXED_OFF:
-        return False
-    return not LANES[lane][5]
 
 
 def lane_kind(t):
     if "fp4" in t:
         return "fp4"
+    if "e5m2" in t:
+        return "e5m2"
     if "fp8" in t:
         return "fp8"
     return "f32" if t == "float" else "f16"
@@ -163,6 +186,8 @@ def pattern(rng, shape, kind):
         return VALUES[idx], FP4_BITS[idx]
     if kind == "fp8":
         return VALUES[idx], FP8_BITS[idx]
+    if kind == "e5m2":
+        return VALUES[idx], FP8_E5M2_BITS[idx]
     return VALUES[idx], None
 
 
@@ -189,7 +214,7 @@ def encoded_operands(lane, a_val, a_bits, b_val, b_bits, s_val, order):
         b_mx = mx.array((b_val.T if (scaled or trans) else b_val).astype(np.float16))
     elif kw == "f32":
         b_mx = mx.array(b_val.T if (scaled or trans) else b_val)
-    elif kw == "fp8":
+    elif kw == "fp8" or kw == "e5m2":
         b_mx = mx.array((b_bits.T if (scaled or trans) else b_bits))
     else:
         b_mx = mx.array(pack(b_bits, 0, order).T if (scaled or trans)

@@ -28,5 +28,7 @@ Lane naming:
 - `A*B->C` — left operand format × right operand format → accumulator format;
 - `t_` — transposed right operand;
 - `mx_` — a UE8M0 block-scale plane on the right operand;
+- `strict_` — the lane runs with `relaxed_precision` off (scaled lanes are strict by default);
+- `relaxed_` — a scaled lane runs with `relaxed_precision` on;
 - `f16_mx_*` — fp16 left operand with a scaled low-bit right operand (weights-only staging
   shape).

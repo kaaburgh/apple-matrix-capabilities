@@ -30,7 +30,9 @@ device memory:
   protocol (shapes, tiles, warm-ups, reps, seed), and per lane: status, `relaxed_precision`,
   packing order, structured check results, per-tile samples and structured sanitized errors.
   Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their checks used
-  constant encodings.
+  constant encodings. The SHA-256 identifies the probe revision that produced the receipt and
+  stops matching once the probe changes; that is expected, and receipts keep citing their own
+  revision.
 
 ## Run conditions
 
@@ -50,7 +52,8 @@ publish if anything else was active — a receipt cannot prove the machine was a
   relaxed-precision settings; a scaled-vs-plain comparison is a comparison of the tested
   paths, not of the scale bytes alone. Receipt schema 2 records the flag per lane:
   unscaled lanes run relaxed on unless the lane name carries the `strict_` marker, scaled
-  lanes run relaxed off.
+  lanes run relaxed off unless it carries the `relaxed_` marker. Use the `strict_`/`relaxed_`
+  variants to separate the scale plane from the relaxed flag.
 - **Packed nibble order is inferred, not assumed.** For packed formats the probe validates
   both nibble orders against the decoded reference and records which one matched
   (`packing`); do not carry a convention across toolchains or formats.
