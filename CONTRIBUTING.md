@@ -5,23 +5,27 @@ the Pro/Max/Ultra variants, and future generations are all `unknown` today.
 
 ## Add your machine
 
-1. Run the probe from a checkout:
+1. Run the probes from a checkout:
 
    ```sh
-   pip install mlx numpy            # a recent MLX
-   python probes/lane_sweep.py      # writes lane_sweep.json next to the script
+   pip install mlx numpy                    # a recent MLX
+   python probes/lane_sweep.py              # writes lane_sweep.json next to the script
+   python probes/integer_lanes.py --json integer_lanes.json
    ```
 
    It needs an Apple Silicon Mac and an Xcode/SDK whose MetalPerformancePrimitives headers
-   provide the tensor ops (Xcode 26.x or later; the fp8 lanes also need a macOS 27 SDK).
-   Lanes that cannot build on your toolchain fail individually and are recorded as failed —
-   that is a result, not an error.
+   provide the tensor ops. Currently that means the **Xcode 27 SDK**: with Xcode 26.6,
+   MLX (0.29-0.32) cannot JIT-compile even fp16 lanes, because its injected kernel headers
+   reference fp8 `metal` types the older Metal standard library lacks; pinning an older MLX
+   does not help (the probe uses `mx.device_info`). When lanes do compile, a lane may still
+   fail its checks or build individually — that too is a result, recorded as such.
 
-2. Put the receipt at `receipts/<chip>/lane_sweep.json`. Chip keys: `m1`, `m2`, `m3`, `m4`,
+2. Put the receipts at `receipts/<chip>/lane_sweep.json` and
+   `receipts/<chip>/integer_lanes.json`. Chip keys: `m1`, `m2`, `m3`, `m4`,
    `m5-air`, `m5-max`, `m5-pro`, `m6`, ... and match the architecture id your run recorded.
 
-3. Fill your chip's entries in `matrix/capabilities.json` from the receipt, each cell
-   referring to it. Leave any cell you did not measure absent or `unknown`.
+3. Fill your chip's entries in `matrix/capabilities.json` from the receipts, each cell
+   referring to one. Leave any cell you did not measure absent or `unknown`.
 
 4. Regenerate the views and commit them: `python tools/build_matrix.py`. CI (on PRs and on
    `main`) validates the JSON, checks every `vs_f16` against the receipt it cites, and fails if

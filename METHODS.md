@@ -40,9 +40,14 @@ memory:
   and those were not measured here. The `vs_f16` ratios are same-chip and cancel core count.
 - **SKUs.** Record the exact configuration (GPU cores, memory) of the measured machine in the
   chip entry. A 8-core M5 Air and a 10-core M5 Air are different rows as far as absolutes go.
-- **Availability is gated.** The tensor ops require recent Xcode/SDK headers. A lane may fail
-  to compile on an older toolchain, and a chip may run a lane at fp16 speed (no acceleration)
-  rather than failing. Record which it is; both are results.
+- **Availability is gated by the toolchain, not only the chip.** The tensor ops need recent
+  Xcode/SDK headers, and MLX's injected kernel headers are a second gate: with Xcode 26.6,
+  MLX 0.32.3 fails to compile every lane (`metal_fp8_e4m3_format` exists only in the Xcode 27
+  Metal standard library), so pre-Xcode-27 hosts cannot produce any receipt with these
+  probes. When lanes do compile, a lane may still fail to build or run at fp16 speed (no
+  acceleration) rather than failing. Record which it is; all of these are results.
+- `integer_lanes.py` is the companion sweep for integer and control lanes (it also re-measures
+  `f16*f16` as its own baseline). Its receipt is `integer_lanes.json`; the same rules apply.
 - **`MLX_ENABLE_TF32` does not touch these lanes** (they are fp16/bf16/8-bit operand probes,
   not float32 matmuls). State the setting you ran with.
 

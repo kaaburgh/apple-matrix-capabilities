@@ -199,6 +199,106 @@
    "gpu_cores": 40,
    "note": "Measured on the 40-core M5 Max SKU; other M5 Max configurations were not measured."
   },
+  "m5-pro": {
+   "device_name": "Apple M5 Pro",
+   "architecture": "applegpu_g17s",
+   "memory_gb": 64,
+   "mlx_at_measurement": "0.32.3",
+   "evidence": "observed",
+   "features": {
+    "int8_accelerated": true,
+    "fp8_accelerated": false,
+    "fp4_accelerated": false
+   },
+   "float_lanes": {
+    "e4m3*e4m3->f32": {
+     "gops_best": 29968.145628183887,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 1.023
+    },
+    "t_e4m3*e4m3->f32": {
+     "gops_best": 29795.990175213865,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 1.017
+    },
+    "mx_e4m3*e4m3->f32": {
+     "gops_best": 25567.26047084658,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.873
+    },
+    "mx_fp4*fp4->f32": {
+     "gops_best": 21669.810837644007,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.74
+    },
+    "f16*f16->f32": {
+     "gops_best": 29285.948650879876,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 1.0
+    },
+    "fp4*fp4->f32": {
+     "gops_best": 26321.73740390048,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.899
+    },
+    "f16*f16->f16": {
+     "gops_best": 31896.25157803708,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 0.998
+    },
+    "bf16*bf16->f32": {
+     "gops_best": 31892.55080564276,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 0.998
+    }
+   },
+   "mixed_lanes": {
+    "f16_mx_fp4->f32": {
+     "gops_best": 24197.706311657832,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.826
+    },
+    "f16*fp4->f32": {
+     "gops_best": 28882.321117750613,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.986
+    },
+    "f16*e4m3->f32": {
+     "gops_best": 29395.046855066485,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 1.004
+    },
+    "f16_mx_e4m3->f32": {
+     "gops_best": 24272.14046143158,
+     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "vs_f16": 0.829
+    },
+    "f16*i8->f32": {
+     "gops_best": 31207.4576656614,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 0.976
+    },
+    "f16*i4b->f32": {
+     "gops_best": 31655.19744955356,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 0.99
+    }
+   },
+   "integer_lanes": {
+    "i8*i8->i32": {
+     "gops_best": 61048.93796497104,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 1.91
+    },
+    "i8*i4b->i32": {
+     "gops_best": 50475.284687261206,
+     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "vs_f16": 1.579
+    }
+   },
+   "gpu_cores": 20,
+   "note": "Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone."
+  },
   "m6": {
    "device_name": "Apple M6",
    "architecture": "applegpu_g18g",
@@ -285,7 +385,6 @@
   "m2",
   "m3",
   "m4",
-  "m5-pro",
   "m5-ultra",
   "m6-pro",
   "m6-max",

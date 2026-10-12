@@ -7,8 +7,10 @@ script. See METHODS.md for the protocol and its traps, and README.md for how
 the receipt feeds the capability matrix.
 
 Requirements: an Apple Silicon Mac, a Python with MLX (pip) and NumPy, and an
-Xcode/SDK whose MetalPerformancePrimitives headers provide the tensor ops
-(Xcode 26.x or later; the fp8 lanes additionally need a macOS 27 SDK).
+Xcode/SDK whose MetalPerformancePrimitives headers provide the tensor ops.
+Currently that means the Xcode 27 SDK: with Xcode 26.6 MLX (0.29-0.32) fails
+to JIT-compile even fp16 lanes, because its injected kernel headers reference
+fp8 `metal` types the older Metal standard library lacks. See METHODS.md.
 Unsupported lanes fail per lane and are recorded as failed, not aborted.
 
 Lanes:
