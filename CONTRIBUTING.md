@@ -10,12 +10,13 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
    ```sh
    python3 -m venv .venv && source .venv/bin/activate   # or a manager of your choice
    pip install mlx numpy                    # tested with Python 3.12, MLX 0.32.3, NumPy 2.x
-   python probes/lane_sweep.py              # writes lane_sweep.json next to the script
+   python probes/lane_sweep.py              # writes lane_sweep.json in the working directory
    python probes/integer_lanes.py --json integer_lanes.json
    ```
 
-   Run it on a quiet, thermally settled machine; one benchmark at a time; note AC/battery and
-   power mode (see "Run conditions" in METHODS.md).
+   Both probes refuse to overwrite an existing receipt unless `--force` is passed; prefer a
+   new name. Run on a quiet, thermally settled machine; one benchmark at a time; note
+   AC/battery and power mode (see "Run conditions" in METHODS.md).
 
    It needs an Apple Silicon Mac and an Xcode/SDK whose MetalPerformancePrimitives headers
    provide the tensor ops. Currently that means the **Xcode 27 SDK**: with Xcode 26.6,
@@ -27,6 +28,8 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
 2. Put the receipts at `receipts/<chip>/lane_sweep.json` and
    `receipts/<chip>/integer_lanes.json`. Chip keys: `m1`, `m2`, `m3`, `m4`,
    `m5-air`, `m5-max`, `m5-pro`, `m6`, ... and match the architecture id your run recorded.
+   Re-runs: keep every receipt; give a repeat run a distinct name (for example
+   `lane_sweep_2.json`) and cite that file from the cell — never overwrite evidence.
 
 3. Fill your chip's entries in `matrix/capabilities.json` from the receipts, each cell
    referring to one. Leave any cell you did not measure absent or `unknown`.

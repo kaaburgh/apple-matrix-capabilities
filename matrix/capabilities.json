@@ -212,92 +212,102 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 29968.145628183887,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 1.023
+     "gops_best": 29435.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 1.006
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 29795.990175213865,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 1.017
+     "gops_best": 27114.5,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.927
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 25567.26047084658,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.873
+     "gops_best": 23096.7,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.789
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 21669.810837644007,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.74
+     "gops_best": 20850.9,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.713
     },
     "f16*f16->f32": {
-     "gops_best": 29285.948650879876,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
+     "gops_best": 29256.3,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 26321.73740390048,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.899
+     "gops_best": 25152.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.86
     },
     "f16*f16->f16": {
-     "gops_best": 31896.25157803708,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
-     "vs_f16": 0.998
+     "gops_best": 31897.795040957626,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 1.001
     },
     "bf16*bf16->f32": {
-     "gops_best": 31892.55080564276,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
-     "vs_f16": 0.998
+     "gops_best": 31874.828735834843,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 1.0
+    },
+    "f32*f32->f32": {
+     "gops_best": 15392.1,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.526
+    },
+    "strict_f32*f32->f32": {
+     "gops_best": 7571.9,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.259
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 24197.706311657832,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.826
+     "gops_best": 22898.9,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.783
     },
     "f16*fp4->f32": {
-     "gops_best": 28882.321117750613,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.986
-    },
-    "f16*e4m3->f32": {
-     "gops_best": 29395.046855066485,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 1.004
-    },
-    "f16_mx_e4m3->f32": {
-     "gops_best": 24272.14046143158,
-     "receipt": "receipts/m5-pro/lane_sweep.json",
-     "vs_f16": 0.829
-    },
-    "f16*i8->f32": {
-     "gops_best": 31207.4576656614,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
+     "gops_best": 28541.5,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
      "vs_f16": 0.976
     },
+    "f16*e4m3->f32": {
+     "gops_best": 29428.1,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 1.006
+    },
+    "f16_mx_e4m3->f32": {
+     "gops_best": 22683.1,
+     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "vs_f16": 0.775
+    },
+    "f16*i8->f32": {
+     "gops_best": 31473.068021628682,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 0.988
+    },
     "f16*i4b->f32": {
-     "gops_best": 31655.19744955356,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
-     "vs_f16": 0.99
+     "gops_best": 31300.298850709645,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 0.982
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 61048.93796497104,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
-     "vs_f16": 1.91
+     "gops_best": 60901.276721194125,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 1.911
     },
     "i8*i4b->i32": {
-     "gops_best": 50475.284687261206,
-     "receipt": "receipts/m5-pro/integer_lanes.json",
-     "vs_f16": 1.579
+     "gops_best": 50229.71752677562,
+     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
+     "vs_f16": 1.576
     }
    },
    "gpu_cores": 20,
-   "note": "Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone."
+   "note": "Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved."
   },
   "m6": {
    "device_name": "Apple M6",

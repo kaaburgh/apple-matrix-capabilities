@@ -6,19 +6,31 @@ claims stay scoped.
 
 ## The protocol
 
-`lane_sweep.py` runs each lane through `mpp::tensor_ops::matmul2d` with operands in device
-memory:
+`lane_sweep.py` (float and mixed lanes) and `integer_lanes.py` (integer and control lanes,
+plus its own f16 baseline) run each lane through `mpp::tensor_ops::matmul2d` with operands in
+device memory:
 
-- shape 2048×4096×4096 (M×K×N), fixed;
-- tile configurations: the standard sweep tries five; two warm-up calls; five timed calls per
-  tile; the best result is kept (a burst figure). Records differ — each receipt lists the
-  tiles its lanes actually ran (some seeded integer lanes ran one);
+- shapes: 2048×4096×4096 (M×K×N) for the standard sweep (the integer probe also offers
+  4096×4096×4096); a small 64×1024×256 (float) / 128×256×256 (integer) shape is used for a
+  fast wiring check;
+- tile configurations: the standard sweep tries five (some seeded schema-1 rows ran one);
+  each receipt lists the tiles its lanes actually ran;
+- correctness first (receipt schema 2): deterministic nonuniform, sign-varying operands that
+  are exactly representable in every lane format (and under any mantissa truncation) are
+  encoded, then decoded back in NumPy for the reference; every timed tile is validated at the
+  timing shape before it is timed, packed formats try both nibble orders (the match is
+  recorded), and a lane that fails a check is reported `wrong` and never timed;
 - `matmul2d_descriptor::mode::multiply` — never `multiply_accumulate`;
-- correctness first: constant encodings (1.0 × 2.0) must produce the expected product;
-  scaled lanes also run a per-n/per-kb block-scale check; a lane that fails its checks is
-  reported `wrong` and its rate is not used;
-- a receipt (`lane_sweep.json`) records device identity, MLX version, per-lane status, rates
-  per tile, and the check results.
+- timing procedure differs by probe and each receipt records it: the float sweep takes five
+  single-call samples with the kernel-call construction inside the timer; the integer sweep
+  takes seven samples of one batched timer over four kernel calls constructed before it;
+  warm-ups precede both; best-of-samples and median are kept per tile;
+- receipts (schema 2) record probe name and SHA-256, Python/NumPy/MLX versions, OS build,
+  Xcode/Metal toolchain, power source and low-power mode, the device fields the map uses,
+  protocol (shapes, tiles, warm-ups, reps, seed), and per lane: status, `relaxed_precision`,
+  packing order, structured check results, per-tile samples and structured sanitized errors.
+  Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their checks used
+  constant encodings.
 
 ## Run conditions
 
@@ -33,7 +45,12 @@ work distorts a burst figure, and a fanless machine's sustained rate is not its 
   you deliberately accumulate, initialize the destination and say so.
 - **Relaxed precision differs per lane.** The scaled lanes run with different
   relaxed-precision settings; a scaled-vs-plain comparison is a comparison of the tested
-  paths, not of the scale bytes alone.
+  paths, not of the scale bytes alone. Receipt schema 2 records the flag per lane:
+  unscaled lanes run relaxed on unless the lane name carries the `strict_` marker, scaled
+  lanes run relaxed off.
+- **Packed nibble order is inferred, not assumed.** For packed formats the probe validates
+  both nibble orders against the decoded reference and records which one matched
+  (`packing`); do not carry a convention across toolchains or formats.
 - **Warm-up matters.** First calls include pipeline compilation. The protocol warms up, and
   still keeps the best of several samples as a burst figure.
 - **Burst is not sustained.** These are short probes. A fanless machine declines under
