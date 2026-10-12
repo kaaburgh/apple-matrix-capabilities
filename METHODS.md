@@ -30,7 +30,14 @@ device memory:
   protocol (shapes, tiles, warm-ups, reps, seed), and per lane: status, `relaxed_precision`,
   packing order, structured check results, per-tile samples and structured sanitized errors.
   Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their checks used
-  constant encodings. The SHA-256 identifies the probe revision that produced the receipt and
+  constant encodings.
+
+`geometry_sweep.py` is the opt-in companion for the geometry dimension: the same lanes,
+checks and timing procedure, run across a fixed list of real prefill shapes (wide-N, deep-K,
+low-rank, narrow families; M 512/2048/8192; the list lives in the script) instead of the
+single standard shape. It writes `geometry_sweep.json` with per-shape, per-tile rates and
+checks. The standard-shape columns stay the default everywhere; geometry receipts are
+additional evidence, one per chip. The SHA-256 identifies the probe revision that produced the receipt and
   stops matching once the probe changes; that is expected, and receipts keep citing their own
   revision.
 

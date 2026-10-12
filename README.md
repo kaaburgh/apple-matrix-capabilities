@@ -20,7 +20,7 @@ measurements in one place, one receipt per cell.
 |---|---|
 | `matrix/capabilities.json` | The map: per chip, measured lanes (rate and vs-fp16), features, and the receipt behind each cell |
 | `matrix/MATRIX.md`, `matrix/capabilities.csv` | Generated views (do not edit by hand; run `tools/build_matrix.py`) |
-| `probes/lane_sweep.py`, `probes/integer_lanes.py` | The probes that produce receipts: operand-format sweeps through `mpp::tensor_ops::matmul2d` |
+| `probes/lane_sweep.py`, `probes/integer_lanes.py`, `probes/geometry_sweep.py` | The probes that produce receipts: operand-format sweeps through `mpp::tensor_ops::matmul2d` (lane/format table, integer lanes, and the optional geometry dimension) |
 | `tools/build_matrix.py` | Validator and view generator; `--check` runs in CI |
 | `tests/` | Validator regression tests (`python -m unittest discover -s tests`) |
 | `receipts/<chip>/` | The receipts behind every observed cell |

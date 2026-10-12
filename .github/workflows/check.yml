@@ -23,4 +23,4 @@ jobs:
       - name: Validator regression tests
         run: python -m unittest discover -s tests -v
       - name: Probe script syntax
-        run: python -m py_compile probes/lane_sweep.py probes/integer_lanes.py
+        run: python -m py_compile probes/lane_sweep.py probes/integer_lanes.py probes/geometry_sweep.py
