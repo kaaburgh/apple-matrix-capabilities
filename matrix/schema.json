@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/precisit/apple-matrix-capabilities/matrix/schema.json",
   "title": "Apple matrix capabilities",
   "type": "object",
@@ -27,14 +27,14 @@
           "mlx_at_measurement": {"type": "string"},
           "evidence": {"enum": ["observed", "reported", "inferred"]},
           "features": {"type": "object", "additionalProperties": {"type": "boolean"}},
-          "float_lanes": {"$ref": "#/definitions/lanes"},
-          "mixed_lanes": {"$ref": "#/definitions/lanes"},
-          "integer_lanes": {"$ref": "#/definitions/lanes"}
+          "float_lanes": {"$ref": "#/$defs/lanes"},
+          "mixed_lanes": {"$ref": "#/$defs/lanes"},
+          "integer_lanes": {"$ref": "#/$defs/lanes"}
         }
       }
     }
   },
-  "definitions": {
+  "$defs": {
     "lanes": {
       "type": "object",
       "additionalProperties": {

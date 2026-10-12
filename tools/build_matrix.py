@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Build (or check) the human-readable views of matrix/capabilities.json.
 
-The JSON is the single source of truth. This tool validates it, cross-checks
-every vs_f16 against the receipt it cites, and writes:
+The JSON is the single source of truth. This tool validates it against
+`matrix/schema.json`, cross-checks every cell against the receipt it cites
+(lane existence and status, measured rate, baseline, device identity), and
+writes:
 
     matrix/MATRIX.md             grouped tables for reading on GitHub
     matrix/capabilities.csv      flat grid (GitHub renders CSV as a table)
@@ -11,11 +13,13 @@ Usage:
     python tools/build_matrix.py            # write the views
     python tools/build_matrix.py --check    # validate + fail if views are stale
 
-No third-party dependencies. `--check` is what CI runs on PRs and on main.
+Requires `jsonschema` (pip install jsonschema). `--check` is what CI runs on
+PRs and on main.
 """
 
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -23,7 +27,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAP = os.path.join(ROOT, "matrix", "capabilities.json")
 MD = os.path.join(ROOT, "matrix", "MATRIX.md")
 CSV = os.path.join(ROOT, "matrix", "capabilities.csv")
+SCHEMA = os.path.join(ROOT, "matrix", "schema.json")
 
+PROTOCOL_SHAPE = (2048, 4096, 4096)
 CHIP_ORDER = ["m1", "m2", "m3", "m4", "m5-air", "m5-pro", "m5-max", "m5-ultra",
               "m6", "m6-pro", "m6-max"]
 CLASSES = [("float_lanes", "Float"), ("mixed_lanes", "Mixed"),
@@ -42,31 +48,97 @@ def chip_key(k):
     return (CHIP_ORDER.index(k) if k in CHIP_ORDER else 99, k)
 
 
+def finite_pos(x):
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and math.isfinite(x) and x > 0)
+
+
+def schema_errors(cap, root):
+    """Validate against matrix/schema.json (jsonschema must be installed)."""
+    path = os.path.join(root, "matrix", "schema.json")
+    if not os.path.isfile(path):
+        return ["schema not found: matrix/schema.json"]
+    try:
+        import jsonschema
+    except ImportError:
+        return ["jsonschema is not installed (pip install jsonschema)"]
+    with open(path) as f:
+        schema = json.load(f)
+    try:
+        jsonschema.validate(cap, schema)
+    except jsonschema.ValidationError as exc:
+        loc = "/".join(str(p) for p in exc.absolute_path)
+        return [f"schema: {loc or '<root>'}: {exc.message}"]
+    return []
+
+
 def f16_rate(receipt):
-    """The f16*f16->f32 best rate in a receipt, float or integer shapes."""
-    if "rows" in receipt:  # integer receipt: rows at M=2048 K=4096 N=4096
+    """The successful f16*f16->f32 rate in a receipt at the protocol shape."""
+    if "rows" in receipt:  # integer receipt: rows carry M/K/N and status
         best = None
         for r in receipt["rows"]:
             if (r.get("lane") == "f16*f16->f32" and r.get("status") == "ok"
-                    and r.get("M") == 2048 and r.get("K") == 4096
-                    and r.get("N") == 4096):
+                    and (r.get("M"), r.get("K"), r.get("N")) == PROTOCOL_SHAPE
+                    and finite_pos(r.get("gops_best"))):
                 best = r["gops_best"] if best is None else max(best, r["gops_best"])
         return best
-    lane = receipt.get("f16*f16->f32", {})
-    return lane.get("gops_best")
+    lane = receipt.get("f16*f16->f32") or {}
+    if lane.get("status") != "ok" or not finite_pos(lane.get("gops_best")):
+        return None
+    return lane["gops_best"]
 
 
-def validate(cap):
+def receipt_identity_errors(rec, chip, c):
+    """The receipt's device report must match the chip entry it backs."""
+    dev = rec.get("device")
+    if not isinstance(dev, dict):
+        return [f"{chip}: receipt has no device report"]
+    errs = []
+    if dev.get("device_name") != c.get("device_name"):
+        errs.append(f"{chip}: receipt device_name {dev.get('device_name')!r} != "
+                    f"{c.get('device_name')!r}")
+    if dev.get("architecture") != c.get("architecture"):
+        errs.append(f"{chip}: receipt architecture {dev.get('architecture')!r} != "
+                    f"{c.get('architecture')!r}")
+    mem = dev.get("memory_size")
+    if isinstance(mem, (int, float)) and not isinstance(mem, bool):
+        if int(mem) // 2**30 != c.get("memory_gb"):
+            errs.append(f"{chip}: receipt memory_size {mem} != "
+                        f"memory_gb {c.get('memory_gb')!r}")
+    mlx = rec.get("mlx")
+    if c.get("mlx_at_measurement") and mlx != c.get("mlx_at_measurement"):
+        errs.append(f"{chip}: receipt mlx {mlx!r} != "
+                    f"mlx_at_measurement {c.get('mlx_at_measurement')!r}")
+    return errs
+
+
+def validate(cap, root=ROOT):
+    """All structural, schema, receipt-fidelity and identity checks."""
     errors = []
-    if cap.get("schema") != 1:
-        errors.append("schema must be 1")
-    if not isinstance(cap.get("chips"), dict) or not cap["chips"]:
+    errors += schema_errors(cap, root)
+    chips = cap.get("chips")
+    if not isinstance(chips, dict) or not chips:
         errors.append("chips missing")
         return errors
-    for chip, c in cap["chips"].items():
+    unknown = cap.get("unknown_chips", [])
+    if isinstance(unknown, list):
+        for u in unknown:
+            if u in chips:
+                errors.append(f"unknown_chips contains measured chip {u!r}")
+    checked = {}
+    for chip, c in chips.items():
+        if not isinstance(c, dict):
+            errors.append(f"{chip}: must be an object")
+            continue
         for field in ("device_name", "architecture", "gpu_cores", "memory_gb", "evidence"):
             if field not in c:
                 errors.append(f"{chip}: missing {field}")
+        for field in ("device_name", "architecture"):
+            if not (isinstance(c.get(field), str) and c.get(field)):
+                errors.append(f"{chip}: {field} must be a non-empty string")
+        gc = c.get("gpu_cores")
+        if not (isinstance(gc, int) and not isinstance(gc, bool) and gc > 0):
+            errors.append(f"{chip}: gpu_cores must be a positive integer")
         if c.get("evidence") not in TAGS - {"unknown"}:
             errors.append(f"{chip}: evidence must be one of {sorted(TAGS - {'unknown'})}")
         for cls, _ in CLASSES:
@@ -75,24 +147,93 @@ def validate(cap):
                 errors.append(f"{chip}.{cls}: must be an object")
                 continue
             for lane, cell in lanes.items():
-                for field in ("gops_best", "vs_f16", "receipt"):
-                    if field not in cell:
-                        errors.append(f"{chip}.{cls}.{lane}: missing {field}")
-                path = os.path.join(ROOT, cell.get("receipt", ""))
+                prefix = f"{chip}.{cls}.{lane}"
+                if not isinstance(cell, dict):
+                    errors.append(f"{prefix}: must be an object")
+                    continue
+                missing = [f for f in ("gops_best", "vs_f16", "receipt") if f not in cell]
+                if missing:
+                    errors.append(f"{prefix}: missing {', '.join(missing)}")
+                    continue
+                rate, ratio = cell["gops_best"], cell["vs_f16"]
+                if not finite_pos(rate):
+                    errors.append(f"{prefix}: gops_best must be finite and positive")
+                if not finite_pos(ratio):
+                    errors.append(f"{prefix}: vs_f16 must be finite and positive")
+                if not finite_pos(rate) or not finite_pos(ratio):
+                    continue
+                rel = cell["receipt"]
+                if not isinstance(rel, str):
+                    errors.append(f"{prefix}: receipt must be a string")
+                    continue
+                rel = rel.replace("\\", "/")
+                parts = rel.split("/")
+                if (os.path.isabs(rel) or ".." in parts or len(parts) < 3
+                        or parts[0] != "receipts" or parts[1] != chip):
+                    errors.append(f"{prefix}: receipt must be receipts/{chip}/<file>, "
+                                  f"got {cell['receipt']!r}")
+                    continue
+                path = os.path.join(root, *parts)
                 if not os.path.isfile(path):
-                    errors.append(f"{chip}.{cls}.{lane}: receipt not found: {cell.get('receipt')}")
+                    errors.append(f"{prefix}: receipt not found: {cell['receipt']}")
                     continue
-                with open(path) as f:
-                    rec = json.load(f)
+                if path not in checked:
+                    try:
+                        with open(path) as f:
+                            rec = json.load(f)
+                    except (OSError, ValueError) as exc:
+                        errors.append(f"{prefix}: receipt unreadable: {exc}")
+                        continue
+                    checked[path] = rec
+                    errors += receipt_identity_errors(rec, chip, c)
+                rec = checked[path]
+                if "rows" in rec:  # integer receipt
+                    rows = [r for r in rec["rows"] if r.get("lane") == lane]
+                    if not rows:
+                        errors.append(f"{prefix}: lane not in {cell['receipt']}")
+                        continue
+                    ok = [r for r in rows if r.get("status") == "ok"
+                          and (r.get("M"), r.get("K"), r.get("N")) == PROTOCOL_SHAPE
+                          and finite_pos(r.get("gops_best"))]
+                    if not ok:
+                        errors.append(f"{prefix}: no successful {PROTOCOL_SHAPE} row "
+                                      f"in {cell['receipt']}")
+                        continue
+                    measured = max(r["gops_best"] for r in ok)
+                else:  # mapping receipt (float/mixed sweep)
+                    lane_rec = rec.get(lane)
+                    if not isinstance(lane_rec, dict):
+                        errors.append(f"{prefix}: lane not in {cell['receipt']}")
+                        continue
+                    if lane_rec.get("status") != "ok":
+                        errors.append(f"{prefix}: receipt lane status is "
+                                      f"{lane_rec.get('status')!r}, not 'ok'")
+                        continue
+                    rates = lane_rec.get("rates")
+                    if not isinstance(rates, dict) or not rates:
+                        errors.append(f"{prefix}: receipt lane has no tile rates")
+                        continue
+                    if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                               for v in rates.values()):
+                        errors.append(f"{prefix}: receipt tile rates must be numbers")
+                        continue
+                    if not any(finite_pos(v) for v in rates.values()):
+                        errors.append(f"{prefix}: receipt lane has no successful tile")
+                        continue
+                    measured = max(rates.values())
+                if abs(rate - measured) > max(0.2, abs(measured) * 1e-6):
+                    errors.append(f"{prefix}: gops_best {rate} != receipt's {measured} "
+                                  f"in {cell['receipt']}")
+                    continue
                 base = f16_rate(rec)
-                if not base:
-                    errors.append(f"{chip}.{cls}.{lane}: receipt has no f16 x f16 lane")
+                if not finite_pos(base):
+                    errors.append(f"{prefix}: receipt has no successful f16*f16->f32 "
+                                  f"baseline")
                     continue
-                expect = round(cell["gops_best"] / base, 3)
-                if abs(expect - cell["vs_f16"]) > 0.0015:
-                    errors.append(
-                        f"{chip}.{cls}.{lane}: vs_f16 {cell['vs_f16']} != "
-                        f"gops/f16 {expect} from {cell['receipt']}")
+                expect = round(rate / base, 3)
+                if abs(expect - ratio) > 0.0015:
+                    errors.append(f"{prefix}: vs_f16 {ratio} != gops/f16 {expect} "
+                                  f"from {cell['receipt']}")
     return errors
 
 
@@ -109,10 +250,11 @@ def build(cap):
                "[`tools/build_matrix.py`](../tools/build_matrix.py). "
                "Do not edit by hand; edit the JSON and run the tool.")
     out.append("")
-    out.append("Rates are GOPS measured at 2048×4096×4096 (best of five tiles, "
-               "`mode::multiply`); `vs f16` divides the same receipt's `f16*f16` rate, "
-               "so each chip is compared only with itself. These are lane probes, "
-               "not model numbers. See [METHODS.md](../METHODS.md).")
+    out.append("Rates are GOPS measured at 2048×4096×4096 (`mode::multiply`), the best result "
+               "the receipt records: the standard sweep tries five tile configurations and "
+               "each receipt records the tiles its lanes actually ran. `vs f16` divides the "
+               "same receipt's `f16*f16->f32` rate, so each chip is compared only with itself. "
+               "These are lane probes, not model numbers. See [METHODS.md](../METHODS.md).")
     out.append("")
 
     def header():
@@ -154,7 +296,8 @@ def build(cap):
     for k in chips:
         ch = cap["chips"][k]
         out.append(f"| `{k}` | {ch['device_name']} | `{ch['architecture']}` | "
-                   f"{ch['gpu_cores']} | {ch['memory_gb']} GB | {ch.get('mlx_at_measurement', '—')} |")
+                   f"{ch['gpu_cores']} | {ch['memory_gb']} GB | "
+                   f"{ch.get('mlx_at_measurement', '—')} |")
     out.append("")
     out.append("Absolute rates are whole-GPU for the measured SKU; divide by the core count for "
                "an approximate per-core figure. The `vs f16` ratios are same-chip and cancel the "

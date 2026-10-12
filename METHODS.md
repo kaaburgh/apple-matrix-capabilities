@@ -10,14 +10,21 @@ claims stay scoped.
 memory:
 
 - shape 2048×4096×4096 (M×K×N), fixed;
-- five tile configurations; two warm-up calls; five timed calls per tile; the best result is
-  kept (a burst figure);
+- tile configurations: the standard sweep tries five; two warm-up calls; five timed calls per
+  tile; the best result is kept (a burst figure). Records differ — each receipt lists the
+  tiles its lanes actually ran (some seeded integer lanes ran one);
 - `matmul2d_descriptor::mode::multiply` — never `multiply_accumulate`;
 - correctness first: constant encodings (1.0 × 2.0) must produce the expected product;
   scaled lanes also run a per-n/per-kb block-scale check; a lane that fails its checks is
   reported `wrong` and its rate is not used;
 - a receipt (`lane_sweep.json`) records device identity, MLX version, per-lane status, rates
   per tile, and the check results.
+
+## Run conditions
+
+Benchmark on a quiet, thermally settled machine; run one benchmark at a time; note AC/battery
+and low-power mode in the PR description; let the machine cool between sweeps. Background GPU
+work distorts a burst figure, and a fanless machine's sustained rate is not its burst rate.
 
 ## Traps (each one cost us rework)
 
@@ -50,6 +57,15 @@ memory:
   `f16*f16` as its own baseline). Its receipt is `integer_lanes.json`; the same rules apply.
 - **`MLX_ENABLE_TF32` does not touch these lanes** (they are fp16/bf16/8-bit operand probes,
   not float32 matmuls). State the setting you ran with.
+- **`->f32` names the declared destination type, not established accumulation precision.** The
+  float-input intrinsic family accumulates in 32-bit float, but the ground-truth checks here
+  use constant encodings, and `relaxed_precision` allows operand mantissas to be truncated
+  before the multiply (f32×f32 operands are admitted only on the relaxed path on the 16×16
+  cooperative tensor). Do not read `->f32` as full-precision fp32 arithmetic.
+- **Receipts name the probe that produced them.** Pre-publication receipts from the authoring
+  project are named `p19b_mx_sweep` and `p23_mixed_fp8_lanes`; they are earlier versions of
+  `lane_sweep.py` running the same protocol. An unfamiliar probe name means a legacy run —
+  say so rather than reconstructing it.
 
 ## What a rate means
 

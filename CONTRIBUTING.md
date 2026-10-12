@@ -1,17 +1,21 @@
 # Contributing
 
 The most valuable contribution is a receipt from hardware we do not have. M1 through M4,
-the Pro/Max/Ultra variants, and future generations are all `unknown` today.
+M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
 
 ## Add your machine
 
 1. Run the probes from a checkout:
 
    ```sh
-   pip install mlx numpy                    # a recent MLX
+   python3 -m venv .venv && source .venv/bin/activate   # or a manager of your choice
+   pip install mlx numpy                    # tested with Python 3.12, MLX 0.32.3, NumPy 2.x
    python probes/lane_sweep.py              # writes lane_sweep.json next to the script
    python probes/integer_lanes.py --json integer_lanes.json
    ```
+
+   Run it on a quiet, thermally settled machine; one benchmark at a time; note AC/battery and
+   power mode (see "Run conditions" in METHODS.md).
 
    It needs an Apple Silicon Mac and an Xcode/SDK whose MetalPerformancePrimitives headers
    provide the tensor ops. Currently that means the **Xcode 27 SDK**: with Xcode 26.6,
@@ -27,9 +31,11 @@ the Pro/Max/Ultra variants, and future generations are all `unknown` today.
 3. Fill your chip's entries in `matrix/capabilities.json` from the receipts, each cell
    referring to one. Leave any cell you did not measure absent or `unknown`.
 
-4. Regenerate the views and commit them: `python tools/build_matrix.py`. CI (on PRs and on
-   `main`) validates the JSON, checks every `vs_f16` against the receipt it cites, and fails if
-   the views are stale. Edit `capabilities.json` only — never the generated files.
+4. Regenerate the views and commit them: `pip install jsonschema && python
+   tools/build_matrix.py`. CI (on PRs and on `main`) validates against `matrix/schema.json`,
+   checks every cell against the receipt it cites (lane existence and status, measured rate,
+   baseline, device identity), runs the validator's regression tests, and fails if the views
+   are stale. Edit `capabilities.json` only — never the generated files.
 
 5. Open a PR. In the description, name the exact device, OS build, Xcode/SDK version and MLX
    version (they are in the receipt), and whether the machine ran on battery or AC.
@@ -40,9 +46,9 @@ the Pro/Max/Ultra variants, and future generations are all `unknown` today.
 - **One chip per receipt.** Do not average machines or extrapolate across generations.
 - **`unknown` is a valid cell** and better than a guess. If a lane fails or is unavailable,
   record that exact status.
-- **Scope is capabilities**, not implementations: no kernel code, no model benchmarks, no
-  vendor speculation. If a cell is derived rather than measured, tag it `inferred` and say
-  from where.
+- **Scope is capabilities**, not implementations: no model benchmarks and no vendor
+  speculation; the probe kernels in `probes/` are the point. If a cell is derived rather than
+  measured, tag it `inferred` and say from where.
 - Small PRs are welcome; there is no minimum number of rows.
 
 ## Review

@@ -1,0 +1,10 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+/lane_sweep.json
+/integer_lanes.json
+/probes/lane_sweep.json
+/probes/integer_lanes.json

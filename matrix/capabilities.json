@@ -377,7 +377,7 @@
     }
    },
    "gpu_cores": 12,
-   "note": "Measured on the 12-core M6 SKU."
+   "note": "Measured on the 12-core M6 SKU. The seeded M6 integer lanes (i8 ones) ran a single tile configuration (64x128x4); the other lanes ran the standard five. Each receipt records the tiles its lanes actually ran."
   }
  },
  "unknown_chips": [

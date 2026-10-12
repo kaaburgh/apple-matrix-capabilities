@@ -15,4 +15,6 @@ python lane_sweep.py
 python integer_lanes.py --json integer_lanes.json
 ```
 
-The receipts land next to the scripts; place them under `receipts/<chip>/` when contributing.
+`lane_sweep.py` writes `lane_sweep.json` next to the script; `integer_lanes.py` writes to the
+path you pass to `--json` (relative to your working directory) and prints the summary without
+one. Place the files under `receipts/<chip>/` when contributing.

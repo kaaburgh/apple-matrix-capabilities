@@ -20,7 +20,9 @@ measurements in one place, one receipt per cell.
 |---|---|
 | `matrix/capabilities.json` | The map: per chip, measured lanes (rate and vs-fp16), features, and the receipt behind each cell |
 | `matrix/MATRIX.md`, `matrix/capabilities.csv` | Generated views (do not edit by hand; run `tools/build_matrix.py`) |
-| `probes/lane_sweep.py` | The probe that produces a receipt: one operand-format sweep through `mpp::tensor_ops::matmul2d` |
+| `probes/lane_sweep.py`, `probes/integer_lanes.py` | The probes that produce receipts: operand-format sweeps through `mpp::tensor_ops::matmul2d` |
+| `tools/build_matrix.py` | Validator and view generator; `--check` runs in CI |
+| `tests/` | Validator regression tests (`python -m unittest discover -s tests`) |
 | `receipts/<chip>/` | The receipts behind every observed cell |
 | `METHODS.md` | Protocol, traps, and what the numbers do and do not mean |
 | `CONTRIBUTING.md` | How to add your machine's rows |
@@ -30,16 +32,18 @@ measurements in one place, one receipt per cell.
 - **Evidence tags**: `observed` (a receipt in `receipts/`), `reported` (a third party's
   measurement, linked), `inferred` (reasoned from source or headers, no local run),
   `unknown` (no claim).
-- **Rates**: GOPS at a fixed shape (2048×4096×4096, best of five tiles, `mode::multiply`).
-  `vs_f16` divides by the same receipt's `f16*f16->f32`, so each chip is compared only with
-  itself.
+- **Rates**: GOPS at a fixed shape (2048×4096×4096, `mode::multiply`), the best result the
+   receipt records — the standard sweep tries five tile configurations, and each receipt lists
+   the tiles its lanes actually ran. `vs_f16` divides by the same receipt's `f16*f16->f32`, so
+   each chip is compared only with itself.
 - **These are lane probes, not model numbers.** A 2× lane does not mean a 2× model.
 
 ## Coverage today
 
-Seed rows measured by Precisit, October 2026: M5 Air (`applegpu_g17g`), M5 Max
-(`applegpu_g17s`), M6 (`applegpu_g18g`). Everything else is `unknown` until someone runs
-the probe — that is the main way to contribute.
+Seed rows measured by Precisit, October 2026: M5 Air (`applegpu_g17g`), M5 Pro and M5 Max
+(both `applegpu_g17s` — the architecture string does not separate the tiers; core count and
+memory do), M6 (`applegpu_g18g`). Everything else is `unknown` until someone runs the probes
+— that is the main way to contribute.
 
 ## Related projects
 

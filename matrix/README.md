@@ -4,7 +4,9 @@
 [`MATRIX.md`](MATRIX.md) and [`capabilities.csv`](capabilities.csv) are generated from it by
 [`tools/build_matrix.py`](../tools/build_matrix.py) — do not edit them by hand. A JSON Schema
 for contributors is in [`schema.json`](schema.json); the build tool performs the stricter
-checks (receipt existence, ratio recomputation) that a schema cannot.
+checks a schema cannot: receipt path containment, lane existence and status, measured-rate
+fidelity, a successful same-receipt `f16` baseline, and device identity (device name,
+architecture, memory, MLX version).
 
 ## Fields
 
