@@ -34,6 +34,12 @@ memory:
 - **Denominators.** All `vs_f16` values divide the same receipt's `f16*f16->f32` at the same
   shape and tile policy. Do not compare across shapes, tiles, or different scripts without
   saying so.
+- **Whole-GPU vs per-core.** Absolute GOPS are whole-GPU rates for the measured SKU. Dividing
+  by `gpu_cores` gives an approximate per-core figure (the CSV carries one), useful for
+  comparing machines, but per-core scaling is not exact: SKUs differ in core count and memory,
+  and those were not measured here. The `vs_f16` ratios are same-chip and cancel core count.
+- **SKUs.** Record the exact configuration (GPU cores, memory) of the measured machine in the
+  chip entry. A 8-core M5 Air and a 10-core M5 Air are different rows as far as absolutes go.
 - **Availability is gated.** The tensor ops require recent Xcode/SDK headers. A lane may fail
   to compile on an older toolchain, and a chip may run a lane at fp16 speed (no acceleration)
   rather than failing. Record which it is; both are results.

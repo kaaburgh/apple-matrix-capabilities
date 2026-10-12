@@ -17,10 +17,12 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["device_name", "architecture", "memory_gb", "evidence"],
+        "required": ["device_name", "architecture", "gpu_cores", "memory_gb", "evidence"],
         "properties": {
           "device_name": {"type": "string"},
           "architecture": {"type": "string"},
+          "gpu_cores": {"type": "integer", "exclusiveMinimum": 0},
+          "note": {"type": "string"},
           "memory_gb": {"type": "number", "exclusiveMinimum": 0},
           "mlx_at_measurement": {"type": "string"},
           "evidence": {"enum": ["observed", "reported", "inferred"]},

@@ -6,7 +6,7 @@ Rates are GOPS measured at 2048×4096×4096 (best of five tiles, `mode::multiply
 
 ## Float lanes
 
-| Lane | M5 Air | M5 Max | M6 |
+| Lane | M5 Air (10c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|
 | `bf16*bf16->f32` | 0.97× | 1.01× | — |
 | `e4m3*e4m3->f32` | 1.08× | 1.01× | **2.08×** |
@@ -19,7 +19,7 @@ Rates are GOPS measured at 2048×4096×4096 (best of five tiles, `mode::multiply
 
 ## Mixed lanes
 
-| Lane | M5 Air | M5 Max | M6 |
+| Lane | M5 Air (10c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|
 | `f16*e4m3->f32` | 1.05× | — | 1.26× |
 | `f16*fp4->f32` | 0.95× | 1.04× | 1.08× |
@@ -30,14 +30,24 @@ Rates are GOPS measured at 2048×4096×4096 (best of five tiles, `mode::multiply
 
 ## Integer lanes
 
-| Lane | M5 Air | M5 Max | M6 |
+| Lane | M5 Air (10c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|
 | `i8*i4b->i32` | 1.76× | 1.53× | 1.73× |
 | `i8*i8->i32` | **2.03×** | 1.87× | 1.98× |
 
+## Machines
+
+| Key | Device | Architecture | GPU cores | Memory | MLX at measurement |
+|---|---|---|---:|---:|---|
+| `m5-air` | Apple M5 | `applegpu_g17g` | 10 | 32 GB | 0.32.3 |
+| `m5-max` | Apple M5 Max | `applegpu_g17s` | 40 | 128 GB | 0.32.3 |
+| `m6` | Apple M6 | `applegpu_g18g` | 12 | 32 GB | 0.32.3 |
+
+Absolute rates are whole-GPU for the measured SKU; divide by the core count for an approximate per-core figure. The `vs f16` ratios are same-chip and cancel the core count.
+
 ## Absolute rates (GOPS best)
 
-| Lane | M5 Air | M5 Max | M6 |
+| Lane | M5 Air (10c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|
 | `bf16*bf16->f32` | 11,728 | 62,520 | — |
 | `e4m3*e4m3->f32` | 14,062 | 54,590 | 28,800 |

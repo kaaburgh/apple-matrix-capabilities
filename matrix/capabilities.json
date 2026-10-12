@@ -105,7 +105,9 @@
      "receipt": "receipts/m5-air/integer_lanes.json",
      "vs_f16": 1.756
     }
-   }
+   },
+   "gpu_cores": 10,
+   "note": "Measured on the 10-core M5 Air SKU (M5 Air ships with fewer GPU cores in some configurations); other SKUs were not measured."
   },
   "m5-max": {
    "device_name": "Apple M5 Max",
@@ -193,7 +195,9 @@
      "receipt": "receipts/m5-max/integer_lanes.json",
      "vs_f16": 1.53
     }
-   }
+   },
+   "gpu_cores": 40,
+   "note": "Measured on the 40-core M5 Max SKU; other M5 Max configurations were not measured."
   },
   "m6": {
    "device_name": "Apple M6",
@@ -271,7 +275,9 @@
      "receipt": "receipts/m6/integer_lanes.json",
      "vs_f16": 1.729
     }
-   }
+   },
+   "gpu_cores": 12,
+   "note": "Measured on the 12-core M6 SKU."
   }
  },
  "unknown_chips": [

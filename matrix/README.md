@@ -10,7 +10,10 @@ checks (receipt existence, ratio recomputation) that a schema cannot.
 
 - `schema`: format version (1).
 - `chips.<key>`: one object per measured chip. `device_name`, `architecture` and `memory_gb`
-  come from the receipt's device report; `mlx_at_measurement` names the MLX version used.
+  come from the receipt's device report; `gpu_cores` is the measured SKU's GPU core count;
+  `note` records SKU specifics; `mlx_at_measurement` names the MLX version used.
+- Absolute rates are whole-GPU for the measured SKU; the generated CSV also carries
+  `gops_per_core`. `vs_f16` is same-chip, so core count cancels.
 - `float_lanes`, `mixed_lanes`, `integer_lanes`: lane name → `{gops_best, vs_f16, receipt}`.
   `vs_f16` divides that chip's `f16*f16->f32` from the same receipt.
 - `features`: coarse booleans as observed. `fp8_accelerated` means a measured fp8 lane

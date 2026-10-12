@@ -64,7 +64,7 @@ def validate(cap):
         errors.append("chips missing")
         return errors
     for chip, c in cap["chips"].items():
-        for field in ("device_name", "architecture", "memory_gb", "evidence"):
+        for field in ("device_name", "architecture", "gpu_cores", "memory_gb", "evidence"):
             if field not in c:
                 errors.append(f"{chip}: missing {field}")
         if c.get("evidence") not in TAGS - {"unknown"}:
@@ -115,9 +115,13 @@ def build(cap):
                "not model numbers. See [METHODS.md](../METHODS.md).")
     out.append("")
 
+    def header():
+        return "| Lane | " + " | ".join(
+            f"{chip_label(k)} ({cap['chips'][k]['gpu_cores']}c)" for k in chips) + " |"
+
     def table(cls):
         lines = [f"## {label} lanes", "",
-                 "| Lane | " + " | ".join(chip_label(c) for c in chips) + " |",
+                 header(),
                  "|---|" + "|".join("--:" for _ in chips) + "|"]
         all_lanes = []
         for chip in chips:
@@ -143,9 +147,22 @@ def build(cap):
         if any(cap["chips"][ch].get(cls) for ch in chips):
             out += table(cls)
 
+    out.append("## Machines")
+    out.append("")
+    out.append("| Key | Device | Architecture | GPU cores | Memory | MLX at measurement |")
+    out.append("|---|---|---|---:|---:|---|")
+    for k in chips:
+        ch = cap["chips"][k]
+        out.append(f"| `{k}` | {ch['device_name']} | `{ch['architecture']}` | "
+                   f"{ch['gpu_cores']} | {ch['memory_gb']} GB | {ch.get('mlx_at_measurement', '—')} |")
+    out.append("")
+    out.append("Absolute rates are whole-GPU for the measured SKU; divide by the core count for "
+               "an approximate per-core figure. The `vs f16` ratios are same-chip and cancel the "
+               "core count.")
+    out.append("")
     out.append("## Absolute rates (GOPS best)")
     out.append("")
-    out.append("| Lane | " + " | ".join(chip_label(c) for c in chips) + " |")
+    out.append(header())
     out.append("|---|" + "|".join("--:" for _ in chips) + "|")
     all_lanes = []
     for chip in chips:
@@ -185,13 +202,15 @@ def build(cap):
         out.append("")
     md = "\n".join(out) + "\n"
 
-    csv_lines = ["chip,class,lane,gops_best,vs_f16,receipt,evidence"]
+    csv_lines = ["chip,gpu_cores,class,lane,gops_best,gops_per_core,vs_f16,receipt,evidence"]
     for chip in chips:
         for cls, label in CLASSES:
             for lane, cell in sorted(cap["chips"][chip].get(cls, {}).items()):
+                cores = cap["chips"][chip]["gpu_cores"]
                 csv_lines.append(
-                    f"{chip},{label.lower()},{lane},{cell['gops_best']:g},"
-                    f"{cell['vs_f16']},{cell['receipt']},{cap['chips'][chip]['evidence']}")
+                    f"{chip},{cores},{label.lower()},{lane},{cell['gops_best']:g},"
+                    f"{cell['gops_best']/cores:.1f},{cell['vs_f16']},{cell['receipt']},"
+                    f"{cap['chips'][chip]['evidence']}")
     csv = "\n".join(csv_lines) + "\n"
     return md, csv
 
