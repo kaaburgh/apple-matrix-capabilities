@@ -10,6 +10,7 @@
       "required": ["probe", "mlx", "device", "protocol", "f16*f16->f32"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/lane_sweep"},
+        "receipt_schema": {"type": "integer", "minimum": 1},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/sweep_protocol"},
@@ -27,6 +28,7 @@
       "required": ["probe", "mlx", "device", "protocol", "rows"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/integer_lanes"},
+        "receipt_schema": {"type": "integer", "minimum": 1},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/integer_protocol"},
@@ -41,6 +43,7 @@
       "required": ["probe", "mlx", "device", "protocol", "lanes"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/geometry_sweep"},
+        "receipt_schema": {"type": "integer", "minimum": 1},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/geometry_protocol"},

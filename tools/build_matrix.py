@@ -108,15 +108,18 @@ def check_errors(where, checks):
     return errs
 
 
-def _status_errors(where, entry):
+def _status_errors(where, entry, require_checks=False):
     errs = []
     status = entry.get("status")
     if status not in ("ok", "wrong", "failed"):
         errs.append(f"{where}: status {status!r} not one of ok/wrong/failed")
         return errs
-    errs += check_errors(where, entry.get("checks", []))
+    checks = entry.get("checks", [])
+    errs += check_errors(where, checks)
     if status == "ok":
-        if not all(c.get("ok") for c in entry.get("checks", []) if isinstance(c, dict)):
+        if require_checks and not checks:
+            errs.append(f"{where}: status 'ok' without any recorded check")
+        if not all(c.get("ok") for c in checks if isinstance(c, dict)):
             errs.append(f"{where}: status 'ok' but a recorded check failed")
         if not finite_pos(entry.get("gops_best")):
             errs.append(f"{where}: status 'ok' without a finite positive gops_best")
@@ -141,7 +144,7 @@ def _status_errors(where, entry):
     return errs
 
 
-def int_row_errors(where, row):
+def int_row_errors(where, row, require_checks=False):
     errs = []
     if not isinstance(row.get("lane"), str) or not is_lane_key(row.get("lane")):
         errs.append(f"{where}: row has no lane name")
@@ -149,7 +152,7 @@ def int_row_errors(where, row):
     if (not isinstance(tile, list) or len(tile) != 3
             or any(not isinstance(v, int) or isinstance(v, bool) for v in tile)):
         errs.append(f"{where}: row tile must be three integers")
-    errs += _status_errors(where, row)
+    errs += _status_errors(where, row, require_checks)
     if row.get("status") == "ok":
         for field in ("M", "K", "N"):
             if not (isinstance(row.get(field), int) and not isinstance(row.get(field), bool)
@@ -243,6 +246,7 @@ def receipt_semantic_errors(rel, rec):
     """Family-specific semantic checks; `rel` is the receipt's relative path."""
     probe = rec.get("probe")
     errs = []
+    strict = receipt_is_schema2(rec)
     if probe == "apple-matrix-capabilities/lane_sweep":
         proto = rec.get("protocol") or {}
         if proto and tuple(proto.get("shape", ())) != PROTOCOL_SHAPE:
@@ -252,7 +256,7 @@ def receipt_semantic_errors(rel, rec):
             if is_lane_key(key) and not key.endswith("->f32") and not key.endswith("->i32"):
                 errs.append(f"{rel}: lane {key!r} has an unexpected output type")
             if is_lane_key(key):
-                errs += _status_errors(f"{rel}:{key}", entry)
+                errs += _status_errors(f"{rel}:{key}", entry, strict)
     elif probe == "apple-matrix-capabilities/integer_lanes":
         proto = rec.get("protocol") or {}
         shapes = proto.get("shapes")
@@ -260,7 +264,7 @@ def receipt_semantic_errors(rel, rec):
         if not isinstance(shapes, list) or want not in shapes:
             errs.append(f"{rel}: protocol.shapes must include {want}")
         for i, row in enumerate(rec.get("rows", [])):
-            errs += int_row_errors(f"{rel}:rows[{i}]", row)
+            errs += int_row_errors(f"{rel}:rows[{i}]", row, strict)
     elif probe == "apple-matrix-capabilities/geometry_sweep":
         proto = rec.get("protocol") or {}
         lanes = rec.get("lanes")
@@ -272,7 +276,7 @@ def receipt_semantic_errors(rel, rec):
                     errs.append(f"{rel}:{lane}: cells must be an object")
                     continue
                 for label, cell in cells.items():
-                    errs += _status_errors(f"{rel}:{lane}:{label}", cell)
+                    errs += _status_errors(f"{rel}:{lane}:{label}", cell, strict)
         if proto.get("shapes") and not isinstance(proto["shapes"], dict):
             errs.append(f"{rel}: protocol.shapes must be an object")
     if (probe in ("apple-matrix-capabilities/lane_sweep",
@@ -376,7 +380,9 @@ def receipt_identity_errors(rec, chip, c):
         errs.append(f"{chip}: receipt architecture {dev.get('architecture')!r} != "
                     f"{c.get('architecture')!r}")
     mem = dev.get("memory_size")
-    if isinstance(mem, (int, float)) and not isinstance(mem, bool):
+    if mem is None:
+        errs.append(f"{chip}: cited receipt has no device.memory_size")
+    elif isinstance(mem, (int, float)) and not isinstance(mem, bool):
         if int(mem) // 2**30 != c.get("memory_gb"):
             errs.append(f"{chip}: receipt memory_size {mem} != "
                         f"memory_gb {c.get('memory_gb')!r}")

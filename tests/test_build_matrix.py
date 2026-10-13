@@ -261,6 +261,27 @@ class TestValidator(Fixture):
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
         self.assert_error(bm.validate(cap, self.root), "recorded check failed")
 
+    def test_deleted_checks_under_ok_rejected_by_walk(self):
+        rec = sweep_receipt()
+        del rec["e4m3*e4m3->f32"]["checks"]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "without any recorded check")
+
+    def test_unrecognized_receipt_schema_rejected(self):
+        rec = sweep_receipt()
+        rec["receipt_schema"] = "two"
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "schema:")
+
+    def test_missing_memory_size_on_cited_receipt_rejected(self):
+        rec = sweep_receipt()
+        del rec["device"]["memory_size"]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "no device.memory_size")
+
     def test_protocol_mode_and_shape_enforced(self):
         rec = sweep_receipt()
         rec["protocol"]["mode"] = "add"
