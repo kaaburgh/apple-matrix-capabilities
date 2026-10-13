@@ -30,7 +30,9 @@ measurements in one place, one receipt per cell.
 ## How to read it
 
 - **Evidence tags**: the map currently publishes `observed` rows only — every cell cites a
-  schema-2 receipt in `receipts/` and the validator enforces that. `reported` (a third
+  supported receipt (schema 3 or 2 — version 3 records the requested work, version 2
+  completion is inferred and labelled as such) in `receipts/` and the validator enforces
+  that. `reported` (a third
   party's measurement, linked) and `inferred` (reasoned from source or headers) are reserved
   for future rows and are unused; unmeasured chips appear in `unknown_chips`.
 - **Rates**: GOPS at a fixed shape (2048×4096×4096, `mode::multiply`), the best result the

@@ -58,7 +58,9 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
 ## Rules
 
 - **No cell without a receipt.** Corrections, additions and removals all need one — and it
-  must be a schema-2 receipt with proven completion; the map publishes observed rows only.
+  must be a supported receipt version (3, or 2 under the documented historical-inference
+  policy) with completion evidence. An interrupted run (`complete: false`) is preserved in
+  `receipts/` as evidence but can never back a cell. The map publishes observed rows only.
 - **One chip per receipt.** Do not average machines or extrapolate across generations.
 - **A failure is a result.** If a lane fails its check, fails to build, or is unavailable,
   that exact status belongs in the receipt; do not fabricate or `inferred`-tag a number.

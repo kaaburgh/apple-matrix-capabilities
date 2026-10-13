@@ -39,7 +39,8 @@ device memory:
   against the request. Schema-2 receipts predate that field: their completion is only
   *inferred* from the lanes/tiles/shapes that survived, which cannot prove a requested item
   that left no terminal row; the generated receipt index labels that `coverage (inferred,
-  v2)`. A receipt with `complete: false` is an interrupted checkpoint that cannot back a cell.
+  v2)`. A receipt with `complete: false` is an interrupted checkpoint: it stays in the
+  archive as evidence, but it can never back a cell.
   Failure objects in schema-3 receipts carry a controlled category plus the exception type —
   raw exception text stays in the contributor's local console log, never in the receipt. Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their
   checks used constant encodings, and they are background evidence that no cell may cite.
@@ -125,7 +126,8 @@ A row says: this GPU, this toolchain, this shape, this tile policy — measured 
 It does not say how a model will run, what a kernel's overhead will cost, or what the units
 physically are.
 
-The matrix currently represents **observed** rows only: every published cell cites a schema-2
-receipt, and the validator rejects a chip carrying measured lanes under any other evidence tag.
+The matrix currently represents **observed** rows only: every published cell cites a
+supported receipt (schema 3, or schema 2 under the historical-inference policy), and the
+validator rejects a chip carrying measured lanes under any other evidence tag.
 `reported` and `inferred` are reserved for future rows with an external source link and are
 unused today; chips without receipts are listed in `capabilities.json`'s `unknown_chips`.
