@@ -30,6 +30,7 @@ import argparse
 import hashlib
 import json
 import hashlib
+import math
 import os
 import platform
 import statistics
@@ -43,7 +44,7 @@ import mlx.core as mx
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C  # noqa: E402
 
-RECEIPT_SCHEMA = 2
+RECEIPT_SCHEMA = 3
 SEED = 20261012
 
 
@@ -249,17 +250,39 @@ def machine_meta():
 def discover_packing(lane, tile, relaxed, rng):
     """Nibble order for int4b lanes: try `lo`, then `hi`. Returns (order, attempts).
 
-    Raises RuntimeError when neither order passes; callers must record the
-    failure as structured evidence instead of letting the process die.
+    Raises `_common.PackingFailed` (carrying the orders actually attempted)
+    when neither order passes or a probe raises; callers record that as
+    terminal evidence instead of letting the process die.
     """
-    attempts = ["lo"]
-    if not check_tile(lane, tile, relaxed, rng, "lo")["ok"]:
+    attempts = []
+    try:
+        attempts.append("lo")
+        if check_tile(lane, tile, relaxed, rng, "lo")["ok"]:
+            return "lo", attempts
         attempts.append("hi")
         if check_tile(lane, tile, relaxed, rng, "hi")["ok"]:
             return "hi", attempts
-        raise RuntimeError("neither nibble order passed the check "
-                           f"(attempts={attempts})")
-    return "lo", attempts
+        raise C.PackingFailed(attempts)
+    except C.PackingFailed:
+        raise
+    except Exception as exc:
+        raise C.PackingFailed(attempts, exc) from exc
+
+
+def terminal_row(lane, tile, shape, order, attempts, status, stage,
+                 checks=None, error=None):
+    """One terminal outcome for one (lane, tile, shape) unit of requested work.
+
+    Every unit gets exactly one row whether it timed, failed a check or could
+    not be built, so receipt coverage can distinguish failure from
+    interruption.
+    """
+    row = {"lane": lane, "tile": list(tile), "M": shape[0], "K": shape[1],
+           "N": shape[2], "status": status, "stage": stage, "packing": order,
+           "packing_attempts": list(attempts), "checks": checks or []}
+    if error is not None:
+        row["error"] = error
+    return row
 
 
 def main():
@@ -306,44 +329,57 @@ def main():
                 "protocol": {"shapes": [f"{m}x{k}x{n}" for m, k, n in shapes],
                              "check_shape": f"{CHK[0]}x{CHK[1]}x{CHK[2]}",
                              "tiles": [f"{t[0]}x{t[1]}x{t[2]}" for t in tiles],
-                             "warmups": 2, "seed": args.seed,
+                             "lanes_requested": list(lanes),
+                             "warmups": 2, "seed": args.seed, "reps": args.reps,
                              "sample": "reps samples of one batched timer over `calls` "
                                        "kernel calls; call construction before the timer",
-                             "packing_checked": "both nibble orders when int4b is present"}})
+                             "packing_checked": "lo-first; the other nibble order is "
+                                                "tried only if the first fails"}})
     rows = []
     out["rows"] = rows
     out["complete"] = False
     write_receipt(out, args.json)
     for lane in lanes:
         rng = np.random.default_rng([args.seed, LANES_INDEX[lane]])
-        order = None
-        attempts = []
-        if has_i4b(lane):
+        packed = has_i4b(lane)
+        order, attempts = None, []
+        if packed:
             try:
                 order, attempts = discover_packing(lane, tiles[0],
                                                    args.relaxed, rng)
             except Exception as exc:
-                rows.append(dict(lane=lane, tile=list(tiles[0]), status="failed",
-                                 packing=order, packing_attempts=attempts, checks=[],
-                                 error=err_obj(exc, "packing_check")))
-                print(f"{lane:16} tile {tiles[0]}: PACKING CHECK FAILED "
-                      f"{type(exc).__name__}", flush=True)
+                attempts = list(getattr(exc, "attempts", attempts))
+                print(f"[local] {lane}: {type(exc).__name__}: {exc}",
+                      file=sys.stderr)
+                err = err_obj(exc, "packing_check")
+                for tile in tiles:
+                    for shape in shapes:
+                        rows.append(terminal_row(lane, tile, shape, None, attempts,
+                                                 "failed", "packing_check",
+                                                 error=err))
+                print(f"{lane:16} PACKING CHECK FAILED {type(exc).__name__}",
+                      flush=True)
                 write_receipt(out, args.json)
                 continue
         for tile in tiles:
             try:
-                chk = check_tile(lane, tile, args.relaxed, rng, order)
+                chk = C.finite_check(check_tile(lane, tile, args.relaxed, rng, order))
             except Exception as exc:
-                rows.append(dict(lane=lane, tile=list(tile), status="failed", packing=order,
-                                 checks=[], error=err_obj(exc, "check")))
-                print(f"{lane:16} tile {tile}: CHECK FAILED {type(exc).__name__}", flush=True)
+                print(f"[local] {lane} {tile}: {type(exc).__name__}: {exc}",
+                      file=sys.stderr)
+                err = err_obj(exc, "check_shape")
+                for shape in shapes:
+                    rows.append(terminal_row(lane, tile, shape, order, attempts,
+                                             "failed", "check_shape", error=err))
+                print(f"{lane:16} tile {tile}: CHECK FAILED {type(exc).__name__}",
+                      flush=True)
                 write_receipt(out, args.json)
                 continue
             if not chk["ok"]:
-                rows.append(dict(lane=lane, tile=list(tile), status="wrong", packing=order,
-                                 checks=[chk]))
-                print(f"{lane:16} tile {tile}: WRONG at check shape "
-                      f"(rel err {chk['rel_err']:.3g})", flush=True)
+                for shape in shapes:
+                    rows.append(terminal_row(lane, tile, shape, order, attempts,
+                                             "wrong", "check_shape", checks=[chk]))
+                print(f"{lane:16} tile {tile}: WRONG at check shape", flush=True)
                 write_receipt(out, args.json)
                 continue
             for shape in shapes:
@@ -352,30 +388,40 @@ def main():
                     a_dec, b_dec, a_mx, b_mx = operands(lane, m, k, n, rng, False, order)
                     ok, rchk = rate_check(lane, tile, args.relaxed, a_dec, b_dec,
                                           a_mx, b_mx, shape)
+                    rchk = C.finite_check(rchk)
                     if not ok:
-                        rows.append(dict(lane=lane, tile=list(tile), packing=order,
-                                         status="wrong", checks=[chk, rchk],
-                                         error={"phase": "rate_check", "type": "WrongResult",
-                                                "message": ""}))
-                        print(f"{lane:16} tile {tile}: WRONG at {m}x{k}x{n} "
-                              f"(rel err {rchk['rel_err']:.3g})", flush=True)
+                        rows.append(terminal_row(
+                            lane, tile, shape, order, attempts, "wrong", "rate_shape",
+                            checks=[chk, rchk],
+                            error={"phase": "rate_check", "type": "WrongResult",
+                                   "category": "wrong_result"}))
+                        print(f"{lane:16} tile {tile}: WRONG at {m}x{k}x{n}",
+                              flush=True)
                         write_receipt(out, args.json)
                         continue
                     best, med, samples = time_tile(lane, tile, args.relaxed, a_mx, b_mx,
                                                    shape, args.reps, args.calls)
+                    if (best <= 0 or not math.isfinite(best) or not math.isfinite(med)
+                            or any(not math.isfinite(s) for s in samples)):
+                        raise ValueError(f"non-finite or non-positive timing "
+                                         f"(best={best!r}, med={med!r})")
                     g = lambda t: 2.0 * m * k * n / t / 1e9
-                    rows.append(dict(lane=lane, tile=list(tile), packing=order, status="ok",
-                                     checks=[chk, rchk], M=m, K=k, N=n,
-                                     ms_best=best * 1e3, ms_med=med * 1e3, ms_samples=samples,
-                                     gops_best=g(best), gops_med=g(med)))
+                    row = terminal_row(lane, tile, shape, order, attempts, "ok",
+                                       "timed", checks=[chk, rchk])
+                    row.update({"ms_best": best * 1e3, "ms_med": med * 1e3,
+                                "ms_samples": samples, "gops_best": g(best),
+                                "gops_med": g(med)})
+                    rows.append(row)
                     print(f"{lane:16} tile m{tile[0]}n{tile[1]}s{tile[2]}  {m}x{k}x{n}  "
                           f"best {g(best):8.0f}  median {g(med):8.0f} G(FL)OP/s  "
                           f"err {rchk['rel_err']:.1e}  packing={order}", flush=True)
                     del a_mx, b_mx
                 except Exception as exc:
-                    rows.append(dict(lane=lane, tile=list(tile), packing=order,
-                                     status="failed", checks=[chk],
-                                     error=err_obj(exc, "timing")))
+                    print(f"[local] {lane} {tile} {m}x{k}x{n}: "
+                          f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                    rows.append(terminal_row(lane, tile, shape, order, attempts,
+                                             "failed", "timing", checks=[chk],
+                                             error=err_obj(exc, "timing")))
                     print(f"{lane:16} tile {tile} shape {m}x{k}x{n}: "
                           f"TIMING FAILED {type(exc).__name__}", flush=True)
                     write_receipt(out, args.json)

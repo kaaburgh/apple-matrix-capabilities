@@ -84,16 +84,28 @@ def is_packed(lane):
 
 
 def discover_packing(lane, shape, rng):
-    """Nibble order for packed lanes: try `lo`, then `hi`. Returns (order, attempts)."""
+    """Nibble order for packed lanes: try `lo`, then `hi`.
+
+    `lane_sweep.check_tile()` returns `(ok, check_entry, context)`; the check
+    entry is only inspected through the tuple. Raises `_common.PackingFailed`
+    carrying the orders actually attempted.
+    """
     tile = tiles_for(*shape)[0]
-    attempts = ["lo"]
-    if not ls.check_tile(lane, tile, shape, rng, "lo")["ok"]:
+    attempts = []
+    try:
+        attempts.append("lo")
+        ok, _chk, _ctx = ls.check_tile(lane, tile, shape, rng, "lo")
+        if ok:
+            return "lo", attempts
         attempts.append("hi")
-        if ls.check_tile(lane, tile, shape, rng, "hi")["ok"]:
+        ok, _chk, _ctx = ls.check_tile(lane, tile, shape, rng, "hi")
+        if ok:
             return "hi", attempts
-        raise RuntimeError(f"neither nibble order passed the check "
-                           f"(attempts={attempts})")
-    return "lo", attempts
+        raise C.PackingFailed(attempts)
+    except C.PackingFailed:
+        raise
+    except Exception as exc:
+        raise C.PackingFailed(attempts, exc) from exc
 
 
 def run_lane_shape(lane, label, shape, rng, out, order):
@@ -106,25 +118,35 @@ def run_lane_shape(lane, label, shape, rng, out, order):
             tname = f"{tile[0]}x{tile[1]}x{tile[2]}"
             try:
                 ok, chk, ctx = ls.check_tile(lane, tile, shape, rng, order)
-                entry["checks"].append(chk)
+                entry["checks"].append(C.finite_check(chk))
                 if not ok:
                     entry["status"] = "wrong"
                     return
                 ts = ls.time_tile(ctx, tile, REPS, 2)
+                if min(ts) <= 0 or not _finite(min(ts)):
+                    raise ValueError(f"non-finite or non-positive timing sample {min(ts)!r}")
                 rates[tname] = round(2.0 * m * k * n / min(ts) / 1e6, 1)
                 samples[tname] = [round(t, 3) for t in ts]
             except Exception as exc:
+                print(f"[local] {lane} {label} {tname}: {type(exc).__name__}: {exc}",
+                      file=sys.stderr)
                 entry["tile_errors"][tname] = C.err_obj(exc, "timing")
         if not rates:
             entry["status"] = "failed"
             entry["error"] = {"phase": "timing", "type": "NoTimedTile",
-                              "message": ""}
+                              "category": "no_timed_tile"}
             return
         entry.update({"status": "ok", "rates": rates, "samples": samples,
                       "gops_best": max(rates.values())})
     except Exception as exc:
+        print(f"[local] {lane} {label}: {type(exc).__name__}: {exc}", file=sys.stderr)
         entry["status"] = "failed"
         entry["error"] = C.err_obj(exc, "build")
+
+
+def _finite(x):
+    import math
+    return math.isfinite(x)
 
 
 def main():
@@ -192,7 +214,12 @@ def main():
             try:
                 order, attempts = discover_packing(lane, shape, rng)
             except Exception as exc:
-                out["lane_meta"][lane]["packing_attempts"] = ["lo", "hi"]
+                attempts = list(getattr(exc, "attempts", []))
+                out["lane_meta"][lane]["packing_attempts"] = attempts
+                out["lane_meta"][lane]["packing_error"] = {
+                    "type": type(exc).__name__, "category": C.classify(
+                        getattr(exc, "cause", None) or exc)}
+                print(f"[local] {lane}: {type(exc).__name__}: {exc}", file=sys.stderr)
                 for label, _ in shapes:
                     out["lanes"][lane][label] = {
                         "status": "failed", "checks": [], "tile_errors": {},

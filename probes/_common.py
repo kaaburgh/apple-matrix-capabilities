@@ -10,6 +10,7 @@ receipt records the hashes of every file it depends on (`sources`).
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -76,8 +77,75 @@ def sanitize(text, limit=200):
     return line[:limit]
 
 
-def err_obj(exc, phase):
-    return {"phase": phase, "type": type(exc).__name__, "message": sanitize(exc)}
+_CATEGORY_BY_TYPE = {
+    "MemoryError": "memory",
+    "TimeoutError": "timeout",
+    "FileNotFoundError": "file",
+    "PermissionError": "permission",
+    "IsADirectoryError": "file",
+    "NotADirectoryError": "file",
+    "OSError": "os",
+    "ValueError": "value",
+    "OverflowError": "value",
+    "ZeroDivisionError": "value",
+    "TypeError": "type",
+    "KeyError": "lookup",
+    "IndexError": "lookup",
+    "AttributeError": "attribute",
+    "RuntimeError": "runtime",
+    "AssertionError": "assertion",
+    "PackingFailed": "packing",
+}
+
+
+def classify(exc):
+    """A controlled category for an exception; never carries free text."""
+    return _CATEGORY_BY_TYPE.get(type(exc).__name__, "other")
+
+
+def err_obj(exc, phase, version=3):
+    """Structured failure for a receipt.
+
+    Schema 3 receipts carry only a controlled category plus the exception
+    type: arbitrary exception text is not safe to publish (it can embed
+    paths, hostnames or credentials). Schema-1/2 historical receipts keep the
+    sanitized first line; the probes print raw diagnostics to the local
+    console instead.
+    """
+    obj = {"phase": phase, "type": type(exc).__name__, "category": classify(exc)}
+    if version < 3:
+        obj["message"] = sanitize(exc)
+    return obj
+
+
+class PackingFailed(RuntimeError):
+    """Neither nibble order passed; carries the orders actually attempted."""
+
+    def __init__(self, attempts, cause=None):
+        super().__init__(f"packing discovery failed after {list(attempts)}")
+        self.attempts = list(attempts)
+        self.cause = cause
+
+
+def finite_check(chk, ensure=False):
+    """Make one check entry JSON-safe: non-finite numbers become null + flag.
+
+    A GPU result can be non-finite (NaN/Inf), which is a real numerical
+    outcome that must be reported, not an abort: the check stays `ok: false`
+    with `rel_err: null` and `non_finite: true`. `ensure` forces the
+    diagnostic fields into existence for new (schema 3) receipts.
+    """
+    out = dict(chk)
+    if ensure:
+        out.setdefault("rel_err", 0.0)
+        out.setdefault("tolerance", None)
+        out.setdefault("ok", False)
+    for k in ("rel_err", "tolerance"):
+        v = out.get(k)
+        if isinstance(v, float) and not math.isfinite(v):
+            out[k] = None
+            out["non_finite"] = True
+    return out
 
 
 # --- provenance ------------------------------------------------------------

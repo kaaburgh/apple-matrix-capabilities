@@ -35,6 +35,7 @@ import io
 import json
 import math
 import os
+import statistics
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -88,10 +89,47 @@ def is_lane_key(key):
     return isinstance(key, str) and "->" in key
 
 
+SUPPORTED_RECEIPT_VERSIONS = (2, 3)
+
+
+def receipt_version(rec):
+    """The receipt's declared schema version, or None (legacy/unsupported)."""
+    v = rec.get("receipt_schema")
+    if isinstance(v, bool) or not isinstance(v, int):
+        return None
+    return v if v in SUPPORTED_RECEIPT_VERSIONS else None
+
+
+def nonfinite_paths(doc, prefix=""):
+    """Paths of every non-finite float anywhere in a parsed document.
+
+    JSON literals NaN/Infinity are already rejected by the strict loader, but
+    a number like `1e999` parses to +inf without a literal; this catches it
+    anywhere in the document, not just in the fields with named checks.
+    """
+    out = []
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            out += nonfinite_paths(v, f"{prefix}/{k}")
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out += nonfinite_paths(v, f"{prefix}/{i}")
+    elif isinstance(doc, float) and not math.isfinite(doc):
+        out.append(prefix or "/")
+    return out
+
+
 # --- receipt semantics ------------------------------------------------------
 
 
 def check_errors(where, checks):
+    """One check entry: `ok` must agree with the numerical result.
+
+    `rel_err` and `tolerance` must be consistent: a passing check needs a
+    finite error within the tolerance ("exact" means rel_err == 0), and the
+    `non_finite` diagnostic is only valid for a failing check with a null
+    error.
+    """
     errs = []
     if not isinstance(checks, list):
         return [f"{where}: checks must be an array"]
@@ -99,12 +137,127 @@ def check_errors(where, checks):
         if not isinstance(c, dict) or not isinstance(c.get("ok"), bool):
             errs.append(f"{where}: checks[{i}] must carry a boolean ok")
             continue
-        for field in ("rel_err", "tolerance"):
-            v = c.get(field)
-            if isinstance(v, str):  # integer probe uses "exact"
-                continue
-            if v is not None and not finite_num(v):
-                errs.append(f"{where}: checks[{i}].{field} is not finite")
+        err, tol, ok = c.get("rel_err"), c.get("tolerance"), c["ok"]
+        if c.get("non_finite"):
+            if ok:
+                errs.append(f"{where}: checks[{i}] is ok but flagged non_finite")
+            if err is not None:
+                errs.append(f"{where}: checks[{i}] is non_finite but carries rel_err")
+            continue
+        if ok:
+            if not finite_num(err):
+                errs.append(f"{where}: checks[{i}] is ok without a finite rel_err")
+            elif tol == "exact":
+                if err != 0.0:
+                    errs.append(f"{where}: checks[{i}] exact tolerance with "
+                                f"rel_err {err}")
+            elif isinstance(tol, (int, float)) and not isinstance(tol, bool):
+                if not finite_num(tol) or err > tol + 1e-12:
+                    errs.append(f"{where}: checks[{i}] rel_err {err} exceeds "
+                                f"tolerance {tol}")
+            else:
+                errs.append(f"{where}: checks[{i}] is ok without a numeric or "
+                            f"'exact' tolerance")
+        else:
+            if err is not None and not finite_num(err):
+                errs.append(f"{where}: checks[{i}] rel_err is not finite and not "
+                            f"flagged")
+    return errs
+
+
+def float_binding_errors(where, entry, dims, reps):
+    """Bind a successful float sweep lane/cell to its own recorded evidence.
+
+    `gops_best` must be the exact max of `rates`; every rate tile needs a
+    passing `rate_shape` check and samples; the rate must match
+    2*M*K*N/min(samples) within the rounding the probe applies (rates rounded
+    to 0.1 GOPS from unrounded samples, samples rounded to 0.001 ms); and
+    `gops_med`, when present, must recompute from the recorded samples.
+    """
+    if entry.get("status") != "ok":
+        return []
+    errs = []
+    rates, samples = entry.get("rates"), entry.get("samples")
+    gb = entry.get("gops_best")
+    if not isinstance(rates, dict) or not rates:
+        return [f"{where}: status 'ok' without tile rates"]
+    if not all(finite_pos(v) for v in rates.values()):
+        return [f"{where}: rates must be finite and positive"]
+    top = max(rates.values())
+    if not finite_pos(gb) or abs(gb - top) > max(1e-9, top * 1e-9):
+        errs.append(f"{where}: gops_best {gb} != max(rates) {top}")
+    ok_tiles = {c.get("tile") for c in entry.get("checks", [])
+                if isinstance(c, dict) and c.get("stage") == "rate_shape"
+                and c.get("ok")}
+    for tname in rates:
+        if tname not in ok_tiles:
+            errs.append(f"{where}: rate tile {tname!r} has no passing rate_shape "
+                        f"check")
+    if not isinstance(samples, dict) or not samples:
+        errs.append(f"{where}: status 'ok' without timing samples")
+        return errs
+    for tname, r in rates.items():
+        ts = samples.get(tname)
+        if not isinstance(ts, list) or not ts:
+            errs.append(f"{where}: no samples for rate tile {tname!r}")
+            continue
+        if reps is not None and len(ts) != reps:
+            errs.append(f"{where}: {tname!r} sample count {len(ts)} != "
+                        f"protocol.reps {reps}")
+        if not all(finite_pos(t) for t in ts):
+            errs.append(f"{where}: {tname!r} samples must be finite and positive")
+            continue
+        mmin = min(ts)
+        expected = 2.0 * dims[0] * dims[1] * dims[2] / mmin / 1e6
+        # Rates are rounded to 0.1 GOPS and timing samples to 0.001 ms; for a
+        # small mmin the sample rounding is the dominant term (rate * step/mmin).
+        tol = 0.06 + max(expected, r) * (0.0006 / mmin)
+        if abs(r - expected) > tol:
+            errs.append(f"{where}: rate {tname!r} {r} != samples-derived "
+                        f"{expected:.6g} (tolerance {tol:.4g}, rounding-aware)")
+    gm = entry.get("gops_med")
+    if gm is not None:
+        try:
+            med = statistics.median(
+                [2.0 * dims[0] * dims[1] * dims[2] / (statistics.median(ts) / 1e3) / 1e9
+                 for ts in samples.values() if ts])
+            if not finite_num(gm) or abs(gm - round(med, 1)) > 0.11:
+                errs.append(f"{where}: gops_med {gm} != samples-derived "
+                            f"{round(med, 1)}")
+        except statistics.StatisticsError:
+            pass
+    return errs
+
+
+def int_row_binding_errors(where, row):
+    """Bind a successful integer row to its own timings and checks."""
+    if row.get("status") != "ok":
+        return []
+    errs = []
+    m, k, n = row.get("M"), row.get("K"), row.get("N")
+    ts = row.get("ms_samples")
+    mb, mm = row.get("ms_best"), row.get("ms_med")
+    gb, gm = row.get("gops_best"), row.get("gops_med")
+    if not isinstance(ts, list) or not ts:
+        return [f"{where}: successful row without timing samples"]
+    if not all(finite_pos(v) for v in ts):
+        errs.append(f"{where}: ms_samples must be finite and positive")
+        return errs
+    if not finite_num(mb) or abs(mb - min(ts)) > 0.005:
+        errs.append(f"{where}: ms_best {mb} != min(ms_samples) {min(ts)}")
+    if not finite_num(mm) or abs(mm - statistics.median(ts)) > 0.005:
+        errs.append(f"{where}: ms_med {mm} != median(ms_samples)")
+    for what, ms, g in (("ms_best", mb, gb), ("ms_med", mm, gm)):
+        if not finite_num(ms):
+            continue
+        expected = 2.0 * m * k * n / (ms * 1e6)
+        if not finite_num(g) or abs(g - expected) > max(1e-3, expected * 1e-9):
+            errs.append(f"{where}: gops derived from {what} {g} != "
+                        f"{expected:.6g}")
+    if not any(isinstance(c, dict) and c.get("ok")
+               and str(c.get("stage", "")).startswith("rate_shape")
+               for c in row.get("checks", [])):
+        errs.append(f"{where}: successful row without a passing rate_shape check")
     return errs
 
 
@@ -168,21 +321,27 @@ def int_row_errors(where, row, require_checks=False):
 
 
 def receipt_is_schema2(rec):
-    v = rec.get("receipt_schema")
-    return isinstance(v, int) and not isinstance(v, bool) and v >= 2
+    """True for the supported measured versions (2 or 3); legacy otherwise."""
+    return receipt_version(rec) is not None
 
 
-def completion_errors(rec):
+def completion_errors(rec, version=None):
     """Prove the receipt ran to completion: explicit flag or coverage cross-check.
 
-    Schema-2 receipts written by the current probes end with `complete: true`.
-    Receipts from before the flag exist: their completion must be provable from
-    coverage (every requested lane/shape/tile recorded, counts consistent).
-    `complete: false` is an interrupted checkpoint and never citable.
+    Schema 3 receipts record the requested work explicitly (`lanes_requested`,
+    integer rows carrying M/K/N for every terminal outcome), so coverage is
+    compared against the request, not against the surviving rows. Schema 2
+    receipts predate that field: for them completion is only *inferred* from
+    the recorded lanes/tiles/shapes vs the protocol, which cannot prove a
+    requested item that left no terminal row; the generated receipt index
+    labels that inference as such. `complete: false` is an interrupted
+    checkpoint and is never citable.
     """
+    version = receipt_version(rec) if version is None else version
     if rec.get("complete") is False:
         return ["incomplete checkpoint (complete=false)"]
     flagged = rec.get("complete") is True
+    explicit = version == 3
     errs = []  # coverage mismatches are errors even when the flag is set
     if "rows" in rec:  # integer_lanes (rows = lanes x tiles x protocol shapes)
         rows = rec.get("rows")
@@ -192,26 +351,51 @@ def completion_errors(rec):
         if res.get("rows_total") != len(rows):
             errs.append("completion unproven: results.rows_total != len(rows)")
         proto = rec.get("protocol") or {}
-        lanes = {r.get("lane") for r in rows if isinstance(r, dict)}
-        tiles = {tuple(r.get("tile", [])) for r in rows if isinstance(r, dict)}
-        shapes = {(r.get("M"), r.get("K"), r.get("N"))
-                  for r in rows if isinstance(r, dict)}
-        want_shapes = {tuple(int(x) for x in s.split("x"))
-                       for s in proto.get("shapes", []) if isinstance(s, str)}
-        if want_shapes:
-            shapes &= want_shapes
-        expected = len(lanes) * len(tiles) * len(shapes)
+        tiles = [tuple(int(x) for x in t0.split("x"))
+                 for t0 in proto.get("tiles", []) if isinstance(t0, str)]
+        shapes = [tuple(int(x) for x in s0.split("x"))
+                  for s0 in proto.get("shapes", []) if isinstance(s0, str)]
         seen = {(r.get("lane"), tuple(r.get("tile", [])),
                  (r.get("M"), r.get("K"), r.get("N")))
                 for r in rows if isinstance(r, dict)}
-        if tiles and shapes and (len(seen) != expected or len(rows) != expected):
-            errs.append("completion unproven: rows do not cover "
-                        "lanes x tiles x protocol shapes")
+        if explicit:
+            req = proto.get("lanes_requested")
+            if not isinstance(req, list) or not req:
+                errs.append("completion unproven: schema 3 needs "
+                            "protocol.lanes_requested")
+            elif tiles and shapes:
+                want = {(lane, tuple(t), shape)
+                        for lane in req for t in tiles for shape in shapes}
+                missing = want - seen
+                extra = seen - want
+                if missing:
+                    errs.append(f"completion unproven: {len(missing)} requested "
+                                f"(lane,tile,shape) outcomes have no terminal row")
+                if extra:
+                    errs.append(f"completion unproven: {len(extra)} terminal rows "
+                                f"outside the requested work")
+        else:
+            lanes = {r.get("lane") for r in rows if isinstance(r, dict)}
+            tset = {tuple(r.get("tile", [])) for r in rows if isinstance(r, dict)}
+            sset = {(r.get("M"), r.get("K"), r.get("N"))
+                    for r in rows if isinstance(r, dict)}
+            if shapes:
+                sset &= set(shapes)
+            expected = len(lanes) * len(tset) * len(sset)
+            if tset and sset and (len(seen) != expected or len(rows) != expected):
+                errs.append("completion unproven (inferred from surviving rows "
+                            "only; schema 2): rows do not cover "
+                            "lanes x tiles x protocol shapes")
     elif "lanes" in rec:  # geometry_sweep
         proto = rec.get("protocol") or {}
-        req = proto.get("lanes_requested") or proto.get("lanes")
+        req = proto.get("lanes_requested") if explicit else (
+            proto.get("lanes_requested") or proto.get("lanes"))
         labels = proto.get("shapes")
         lanes = rec.get("lanes")
+        if explicit and not proto.get("lanes_requested"):
+            errs.append("completion unproven: schema 3 needs "
+                        "protocol.lanes_requested")
+            req = proto.get("lanes") or list(lanes or {})
         if not isinstance(lanes, dict) or not req:
             if flagged:
                 return errs
@@ -230,7 +414,7 @@ def completion_errors(rec):
         present = sorted(k for k in rec if is_lane_key(k))
         res = rec.get("results") or {}
         if not req:
-            if not flagged:
+            if explicit or not flagged:
                 errs.append("completion unproven: no lanes_requested")
         elif present != sorted(req):
             errs.append("completion unproven: lanes recorded != lanes requested")
@@ -245,29 +429,63 @@ def completion_errors(rec):
 def receipt_semantic_errors(rel, rec):
     """Family-specific semantic checks; `rel` is the receipt's relative path."""
     probe = rec.get("probe")
+    version = receipt_version(rec)
+    strict = version in SUPPORTED_RECEIPT_VERSIONS
     errs = []
-    strict = receipt_is_schema2(rec)
     if probe == "apple-matrix-capabilities/lane_sweep":
         proto = rec.get("protocol") or {}
         if proto and tuple(proto.get("shape", ())) != PROTOCOL_SHAPE:
             errs.append(f"{rel}: protocol.shape must be {PROTOCOL_SHAPE} for "
                         f"cells measured at the standard rate")
         for key, entry in rec.items():
-            if is_lane_key(key) and not key.endswith("->f32") and not key.endswith("->i32"):
+            if not is_lane_key(key):
+                continue
+            if not key.endswith("->f32") and not key.endswith("->i32"):
                 errs.append(f"{rel}: lane {key!r} has an unexpected output type")
-            if is_lane_key(key):
-                errs += _status_errors(f"{rel}:{key}", entry, strict)
+            errs += _status_errors(f"{rel}:{key}", entry, strict)
+            if strict:
+                dims = tuple(proto.get("shape") or PROTOCOL_SHAPE)
+                errs += float_binding_errors(f"{rel}:{key}", entry, dims,
+                                             proto.get("reps"))
+                if "fp4" in key and version == 3:
+                    att = entry.get("packing_attempts")
+                    if not isinstance(att, list) or not att:
+                        errs.append(f"{rel}:{key}: packed lane without recorded "
+                                    f"packing_attempts")
+                    elif (entry.get("status") == "ok"
+                          and entry.get("packing") not in att):
+                        errs.append(f"{rel}:{key}: matched packing "
+                                    f"{entry.get('packing')!r} not in attempts {att}")
     elif probe == "apple-matrix-capabilities/integer_lanes":
         proto = rec.get("protocol") or {}
         shapes = proto.get("shapes")
         want = f"{PROTOCOL_SHAPE[0]}x{PROTOCOL_SHAPE[1]}x{PROTOCOL_SHAPE[2]}"
         if not isinstance(shapes, list) or want not in shapes:
             errs.append(f"{rel}: protocol.shapes must include {want}")
+        reps = rec.get("reps") if isinstance(rec.get("reps"), int) else None
         for i, row in enumerate(rec.get("rows", [])):
-            errs += int_row_errors(f"{rel}:rows[{i}]", row, strict)
+            where = f"{rel}:rows[{i}]"
+            errs += int_row_errors(where, row, strict)
+            if strict:
+                errs += int_row_binding_errors(where, row)
+                if version == 3:
+                    for field in ("M", "K", "N"):
+                        v = row.get(field)
+                        if not (isinstance(v, int) and not isinstance(v, bool)
+                                and v > 0):
+                            errs.append(f"{where}: schema 3 terminal row needs a "
+                                        f"positive {field}")
+                    if not isinstance(row.get("stage"), str):
+                        errs.append(f"{where}: schema 3 terminal row needs a stage")
+                    if reps and row.get("status") == "ok":
+                        ts = row.get("ms_samples")
+                        if isinstance(ts, list) and len(ts) != reps:
+                            errs.append(f"{where}: sample count {len(ts)} != "
+                                        f"receipt reps {reps}")
     elif probe == "apple-matrix-capabilities/geometry_sweep":
         proto = rec.get("protocol") or {}
         lanes = rec.get("lanes")
+        shapes = proto.get("shapes") or {}
         if not isinstance(lanes, dict):
             errs.append(f"{rel}: lanes mapping missing")
         else:
@@ -276,14 +494,17 @@ def receipt_semantic_errors(rel, rec):
                     errs.append(f"{rel}:{lane}: cells must be an object")
                     continue
                 for label, cell in cells.items():
-                    errs += _status_errors(f"{rel}:{lane}:{label}", cell, strict)
+                    where = f"{rel}:{lane}:{label}"
+                    errs += _status_errors(where, cell, strict)
+                    if strict and label in shapes:
+                        errs += float_binding_errors(
+                            where, cell, tuple(shapes[label]), proto.get("reps"))
         if proto.get("shapes") and not isinstance(proto["shapes"], dict):
             errs.append(f"{rel}: protocol.shapes must be an object")
-    if (probe in ("apple-matrix-capabilities/lane_sweep",
-                  "apple-matrix-capabilities/integer_lanes",
-                  "apple-matrix-capabilities/geometry_sweep")
-            and receipt_is_schema2(rec)):
-        errs += [f"{rel}: {e}" for e in completion_errors(rec)]
+    if probe in ("apple-matrix-capabilities/lane_sweep",
+                 "apple-matrix-capabilities/integer_lanes",
+                 "apple-matrix-capabilities/geometry_sweep") and strict:
+        errs += [f"{rel}: {e}" for e in completion_errors(rec, version)]
     return errs
 
 
@@ -324,6 +545,8 @@ def scan_receipts(root=ROOT):
                 errors.append(f"{rel}: unreadable or non-strict JSON: {exc}")
                 continue
             cache[rel.replace("\\", "/")] = rec
+            for path in nonfinite_paths(rec):
+                errors.append(f"{rel}: non-finite number at {path}")
             errors += receipt_schema_errors(rel, rec, root)
             errors += receipt_semantic_errors(rel, rec)
     return errors, cache
@@ -527,9 +750,10 @@ def validate(cap, root=ROOT):
                     checked[path] = rec
                     errors += receipt_identity_errors(rec, chip, c)
                 rec = checked[path]
-                if not receipt_is_schema2(rec):
-                    errors.append(f"{prefix}: cited receipt predates schema 2; "
-                                  f"completion cannot be proven ({rel})")
+                if receipt_version(rec) is None:
+                    errors.append(f"{prefix}: cited receipt predates schema 2 or "
+                                  f"has an unsupported receipt_schema; completion "
+                                  f"cannot be proven ({rel})")
                     continue
                 completion = completion_errors(rec)
                 if completion:
@@ -591,6 +815,41 @@ def lane_spread(rec, lane):
     return max(spreads) if spreads else None
 
 
+def receipt_worst_spread(rec):
+    """Worst (max/min) sample spread anywhere in a receipt: (value, location).
+
+    Scans every measured lane/shape/tile regardless of whether the matrix cites
+    the receipt, so geometry receipts (which back no standard cell) still show
+    their instability instead of an empty column.
+    """
+    worst, where = None, None
+
+    def consider(values, location):
+        nonlocal worst, where
+        s = sample_spread(values)
+        if s is not None and (worst is None or s > worst):
+            worst, where = s, location
+
+    if "rows" in rec:
+        for r in rec.get("rows", []):
+            if not isinstance(r, dict):
+                continue
+            consider(r.get("ms_samples", []), f"{r.get('lane')} {list(r.get('tile', []))} "
+                     f"{r.get('M')}x{r.get('K')}x{r.get('N')}")
+    elif "lanes" in rec:
+        for lane, cells in (rec.get("lanes") or {}).items():
+            for label, cell in (cells or {}).items():
+                for tname, vals in ((cell or {}).get("samples") or {}).items():
+                    consider(vals, f"{lane} {label} {tname}")
+    else:
+        for lane, entry in rec.items():
+            if not is_lane_key(lane) or not isinstance(entry, dict):
+                continue
+            for tname, vals in (entry.get("samples") or {}).items():
+                consider(vals, f"{lane} {tname}")
+    return (worst, where) if worst is not None else None
+
+
 def cited_by(cap):
     """{receipt relpath: [(chip, cls, lane), ...]} in deterministic order."""
     out = {}
@@ -603,21 +862,22 @@ def cited_by(cap):
     return out
 
 
-def baseline_info(cap, root=ROOT):
-    """{chip: (f16 GOPS, receipt relpath)} from the receipts the chip cites."""
+def receipt_baselines(cap, root=ROOT):
+    """{receipt relpath: f16 GOPS} for every receipt the matrix cites.
+
+    A single per-chip number cannot describe all cells: different cells may
+    cite different runs with different baselines. Views and the CSV publish
+    the baseline of each cell's own receipt instead.
+    """
     out = {}
-    for chip, c in cap.get("chips", {}).items():
-        rels = sorted({c[cls][lane]["receipt"].replace("\\", "/")
-                       for cls, _ in CLASSES for lane in c.get(cls, {})})
-        for rel in rels:
-            try:
-                rec = load_strict(os.path.join(root, *rel.split("/")))
-            except (OSError, ValueError):
-                continue
-            rate = f16_rate(rec)
-            if finite_pos(rate):
-                out[chip] = (rate, rel)
-                break
+    for rel in cited_by(cap):
+        try:
+            rec = load_strict(os.path.join(root, *rel.split("/")))
+        except (OSError, ValueError):
+            continue
+        rate = f16_rate(rec)
+        if finite_pos(rate):
+            out[rel] = rate
     return out
 
 
@@ -638,7 +898,7 @@ def build(cap, root=ROOT):
             s = lane_spread(rec, lane)
             if s is not None and s > SPREAD_LIMIT:
                 flags.add((rel, lane))
-    baselines = baseline_info(cap, root)
+    baselines = receipt_baselines(cap, root)
 
     def flagged(receipt, lane):
         return (receipt.replace("\\", "/"), lane) in flags
@@ -695,13 +955,20 @@ def build(cap, root=ROOT):
 
     out.append("## Machines")
     out.append("")
-    out.append("| Key | Device | Architecture | GPU cores | Memory | f16 baseline (GOPS) | "
-               "MLX at measurement |")
-    out.append("|---|---|---|---:|---:|---:|---|")
+    out.append("| Key | Device | Architecture | GPU cores | Memory | f16 baselines (GOPS, by "
+               "receipt) | MLX at measurement |")
+    out.append("|---|---|---|---:|---:|---|---|")
     for k in chips:
         ch = cap["chips"][k]
-        base = baselines.get(k)
-        base_cell = f"{base[0]:,.0f}" if base else "—"
+        chip_receipts = sorted({cap["chips"][k][cls][lane]["receipt"].replace("\\", "/")
+                                for cls, _ in CLASSES
+                                for lane in cap["chips"][k].get(cls, {})})
+        pairs = []
+        for rel in chip_receipts:
+            rate = baselines.get(rel)
+            if finite_pos(rate):
+                pairs.append(f"{rate:,.0f} ({os.path.basename(rel)})")
+        base_cell = "; ".join(pairs) if pairs else "—"
         out.append(f"| `{k}` | {ch['device_name']} | `{ch['architecture']}` | "
                    f"{ch['gpu_cores']} | {ch['memory_gb']} GB | {base_cell} | "
                    f"{ch.get('mlx_at_measurement', '—')} |")
@@ -714,16 +981,13 @@ def build(cap, root=ROOT):
         for k, note in notes:
             out.append(f"- `{k}`: {note}")
         out.append("")
-    base_lines = [f"`{k}` {baselines[k][0]:,.0f} GOPS from `{baselines[k][1]}`"
-                  for k in chips if k in baselines]
-    if base_lines:
-        out.append("f16 denominator per chip (from the receipt the chip's cells cite, "
-                   "so the ratio cancels chip/clock differences): "
-                   + "; ".join(base_lines) + ".")
-        out.append("")
+    out.append("Every cell's `vs f16` divides **its own cited receipt's** `f16*f16->f32` rate "
+               "(listed per receipt above; the CSV carries each cell's baseline in "
+               "`baseline_gops`/`baseline_receipt`). Same-chip normalization cancels the SKU "
+               "and core count, not sequential-run clock variation between receipts.")
+    out.append("")
     out.append("Absolute rates are whole-GPU for the measured SKU; divide by the core count for "
-               "an approximate per-core figure. The `vs f16` ratios are same-chip and cancel the "
-               "core count.")
+               "an approximate per-core figure.")
     out.append("")
     out.append("## Absolute rates (GOPS best)")
     out.append("")
@@ -761,13 +1025,17 @@ def build(cap, root=ROOT):
 
     out.append("## Receipts")
     out.append("")
-    out.append("Every receipt in `receipts/` is schema-checked in CI. "
-               "`complete` is the receipt's own completion evidence (`flag`) or "
-               "coverage-proven for receipts written before the flag existed "
-               "(`coverage`); legacy/imported evidence receipts cannot back cells.")
+    out.append("Every receipt in `receipts/` is schema-checked in CI. Completion "
+               "evidence: `flag` (the receipt's own `complete`), `coverage (v3)` "
+               "(requested work vs terminal rows), `coverage (inferred, v2)` — "
+               "schema-2 receipts predate explicit requested-work fields, so "
+               "coverage is inferred from the surviving rows and cannot prove a "
+               "requested item that left none — or `legacy`/`unproven` for "
+               "receipts that cannot back cells. The spread column scans every "
+               "measured lane/shape in the receipt, not only cited cells.")
     out.append("")
-    out.append("| Receipt | Probe | Complete | Cited cells | Max sample spread |")
-    out.append("|---|---|---|---:|---:|")
+    out.append("| Receipt | Probe | Complete | Cited cells | Worst sample spread |")
+    out.append("|---|---|---|---:|---|")
     all_receipts = []
     base = os.path.join(root, "receipts")
     for dirpath, dirnames, filenames in os.walk(base):
@@ -785,16 +1053,18 @@ def build(cap, root=ROOT):
         probe = rec.get("probe") or "legacy (pre-schema)"
         cited_cells = cited.get(rel, [])
         n = len(cited_cells)
+        version = receipt_version(rec)
         if rec.get("complete") is True:
             comp = "flag"
-        elif receipt_is_schema2(rec) and not completion_errors(rec):
-            comp = "coverage"
+        elif version is not None and not completion_errors(rec, version):
+            comp = "coverage (v3)" if version == 3 else "coverage (inferred, v2)"
         else:
-            comp = "legacy" if not receipt_is_schema2(rec) else "unproven"
-        spreads = [s for _, _, lane in cited_cells
-                   if (s := lane_spread(rec, lane)) is not None]
-        max_spread = f"{max(spreads):.2f}×" + (" ⚠" if max(spreads) > SPREAD_LIMIT else "") \
-            if spreads else "—"
+            comp = "legacy" if version is None else "unproven"
+        spread = receipt_worst_spread(rec)
+        if spread:
+            max_spread = f"{spread[0]:.2f}×" +                 (" ⚠" if spread[0] > SPREAD_LIMIT else "") + f" ({spread[1]})"
+        else:
+            max_spread = "—"
         out.append(f"| `{rel}` | `{probe}` | {comp} | {n} | {max_spread} |")
     out.append("")
 
@@ -809,13 +1079,18 @@ def build(cap, root=ROOT):
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(["chip", "gpu_cores", "class", "lane", "gops_best", "gops_per_core",
-                "vs_f16", "spread_flag", "receipt", "evidence"])
+                "vs_f16", "baseline_gops", "baseline_receipt", "spread_flag",
+                "receipt", "evidence"])
     for chip in chips:
         for cls, label in CLASSES:
             for lane, cell in sorted(cap["chips"][chip].get(cls, {}).items()):
                 cores = cap["chips"][chip]["gpu_cores"]
+                rel = cell["receipt"].replace("\\", "/")
+                base = baselines.get(rel)
                 w.writerow([chip, cores, label.lower(), lane, f"{cell['gops_best']:g}",
                             f"{cell['gops_best'] / cores:.1f}", cell["vs_f16"],
+                            f"{base:g}" if finite_pos(base) else "",
+                            os.path.basename(rel),
                             "spread>2x" if flagged(cell["receipt"], lane) else "",
                             cell["receipt"], cap["chips"][chip]["evidence"]])
     return md, buf.getvalue()

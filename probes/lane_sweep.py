@@ -51,6 +51,7 @@ records the flag per lane. mode::multiply only.
 
 import argparse
 import hashlib
+import math
 import os
 import platform
 import statistics
@@ -64,7 +65,7 @@ import mlx.core as mx
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C  # noqa: E402
 
-RECEIPT_SCHEMA = 2
+RECEIPT_SCHEMA = 3
 SEED = 20261012
 TOL = 1e-5
 
@@ -306,23 +307,23 @@ def time_tile(ctx, tile, reps, warmups):
 
 def run_lane(lane, out, rng, reps, warmups):
     entry = {"status": "failed", "relaxed_precision": lane_relaxed(lane),
-             "packing": None, "checks": [], "tile_errors": {}}
+             "packing": None, "packing_attempts": [], "checks": [], "tile_errors": {}}
     out[lane] = entry
     try:
-        order = "lo"
-        ok0, chk0, _ = check_tile(lane, TILES[0], CHK, rng, order)
-        if not ok0 and (lane_kind(LANES[lane][0]) == "fp4" or lane_kind(LANES[lane][2]) == "fp4"):
-            if lane_kind(LANES[lane][0]) == "fp4":
-                ok0b, chk0b, _ = check_tile(lane, TILES[0], CHK, rng, "hi")
-                if ok0b:
-                    order, ok0, chk0 = "hi", ok0b, chk0b
-            elif lane_kind(LANES[lane][2]) == "fp4":
-                ok0b, chk0b, _ = check_tile(lane, TILES[0], CHK, rng, "hi")
-                if ok0b:
-                    order, ok0, chk0 = "hi", ok0b, chk0b
-        entry["packing"] = order if (lane_kind(LANES[lane][0]) == "fp4"
-                                     or lane_kind(LANES[lane][2]) == "fp4") else None
-        entry["checks"].append(chk0)
+        packed = lane_kind(LANES[lane][0]) == "fp4" or lane_kind(LANES[lane][2]) == "fp4"
+        attempts, checks = ["lo"], []
+        ok0, chk0 = check_tile(lane, TILES[0], CHK, rng, "lo")[:2]
+        checks.append(C.finite_check(chk0))
+        order = "lo" if ok0 else None
+        if not ok0 and packed:
+            attempts.append("hi")
+            ok1, chk1 = check_tile(lane, TILES[0], CHK, rng, "hi")[:2]
+            checks.append(C.finite_check(chk1))
+            if ok1:
+                ok0, order = True, "hi"
+        entry["packing_attempts"] = attempts if packed else []
+        entry["packing"] = order
+        entry["checks"] = checks
         if not ok0:
             entry["status"] = "wrong"
             return
@@ -331,24 +332,29 @@ def run_lane(lane, out, rng, reps, warmups):
             tname = f"{tile[0]}x{tile[1]}x{tile[2]}"
             try:
                 ok, chk, ctx = check_tile(lane, tile, RATE, rng, order)
-                entry["checks"].append(chk)
+                entry["checks"].append(C.finite_check(chk))
                 if not ok:
                     entry["status"] = "wrong"
                     return
                 ts = time_tile(ctx, tile, reps, warmups)
+                if min(ts) <= 0 or not math.isfinite(min(ts)):
+                    raise ValueError(f"non-finite or non-positive timing sample {min(ts)!r}")
                 rates[tname] = round(2.0 * RATE[0] * RATE[1] * RATE[2] / min(ts) / 1e6, 1)
                 samples[tname] = [round(t, 3) for t in ts]
             except Exception as exc:
+                print(f"[local] {tname}: {type(exc).__name__}: {exc}", file=sys.stderr)
                 entry["tile_errors"][tname] = err_obj(exc, "timing")
         if not rates:
             entry["status"] = "failed"
-            entry["error"] = {"phase": "timing", "type": "NoTimedTile", "message": ""}
+            entry["error"] = {"phase": "timing", "type": "NoTimedTile",
+                              "category": "no_timed_tile"}
             return
         entry.update({"status": "ok", "rates": rates, "samples": samples,
                       "gops_best": max(rates.values()), "gops_med": round(statistics.median(
                           [2.0 * RATE[0] * RATE[1] * RATE[2] / (t / 1e3) / 1e9
                            for ts in samples.values() for t in [statistics.median(ts)]]), 1)})
     except Exception as exc:
+        print(f"[local] {lane}: {type(exc).__name__}: {exc}", file=sys.stderr)
         entry["status"] = "failed"
         entry["error"] = err_obj(exc, "build")
 

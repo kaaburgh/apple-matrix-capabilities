@@ -5,15 +5,16 @@ Run from the repository root:
 
     python -m unittest discover -s tests -v
 
-They exercise the validator against synthetic schema-2 fixtures in a temporary
-root, so no hardware and no real receipts are needed. jsonschema must be
-installed.
+Fixtures are internally consistent (rates derived from samples exactly as the
+probes derive them), so every validation rule can be exercised. No hardware and
+no real receipts are needed; jsonschema must be installed.
 """
 
 import importlib.util
 import json
 import os
 import shutil
+import statistics
 import tempfile
 import unittest
 
@@ -23,39 +24,59 @@ _spec = importlib.util.spec_from_file_location(
 bm = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bm)
 
-PROTO = {"shape": [2048, 4096, 4096], "check_shape": [64, 1024, 256],
-         "tiles": ["64x128x4", "64x64x2"], "warmups": 2, "reps": 3,
-         "sample": "timer test", "mode": "multiply", "seed": 1,
-         "lanes_requested": ["f16*f16->f32", "e4m3*e4m3->f32"]}
+SHAPE = (2048, 4096, 4096)
+CONST = 2.0 * SHAPE[0] * SHAPE[1] * SHAPE[2] / 1e6  # rate = CONST / min_ms
+TILES = ["64x128x4", "64x64x2"]
 
 
-def sweep_lane(rate, ok=True, samples=None):
-    return {
-        "status": "ok" if ok else "wrong",
-        "relaxed_precision": False,
-        "packing": None,
-        "checks": [{"stage": "rate_shape", "tile": "64x128x4", "rel_err": 0.0,
-                    "tolerance": 1e-5, "ok": ok}],
-        "rates": {"64x128x4": rate, "64x64x2": rate * 0.99},
-        "samples": samples or {"64x128x4": [1.0, 1.01], "64x64x2": [1.02, 1.03]},
-        "gops_best": rate,
-    }
+def samples_for(rate, reps=5):
+    """A plausible sample list whose min gives approximately `rate` GOPS."""
+    mmin = CONST / rate
+    return [round(mmin * (1 + 0.01 * i), 3) for i in range(reps)]
+
+
+def lane_from_samples(samples, relax=False, dims=SHAPE, packing=None,
+                      attempts=None, complete=True):
+    rates = {t: round(2.0 * dims[0] * dims[1] * dims[2] / min(ts) / 1e6, 1)
+             for t, ts in samples.items()}
+    checks = [{"stage": "check_shape", "tile": TILES[0], "rel_err": 0.0,
+               "tolerance": 1e-5, "ok": True}]
+    checks += [{"stage": "rate_shape", "tile": t, "rel_err": 0.0,
+                "tolerance": 1e-5, "ok": True} for t in samples]
+    gops_med = round(statistics.median(
+        [2.0 * dims[0] * dims[1] * dims[2] / (statistics.median(ts) / 1e3) / 1e9
+         for ts in samples.values()]), 1)
+    return {"status": "ok", "relaxed_precision": relax, "packing": packing,
+            "packing_attempts": attempts or [], "checks": checks,
+            "rates": rates, "samples": samples,
+            "gops_best": max(rates.values()), "gops_med": gops_med}
 
 
 def sweep_receipt(device_name="Apple M9", architecture="applegpu_g99",
-                  memory_size=32 * 2**30, mlx="0.32.3", complete=True):
+                  memory_size=32 * 2**30, mlx="0.32.3", version=3,
+                  complete=True, f16=True, lanes_requested=None):
     rec = {
         "probe": "apple-matrix-capabilities/lane_sweep",
-        "receipt_schema": 2,
         "probe_sha256": "0" * 64,
         "mlx": mlx,
         "device": {"device_name": device_name, "architecture": architecture,
                    "memory_size": memory_size},
-        "protocol": json.loads(json.dumps(PROTO)),
-        "results": {"ok": 2, "wrong": 0, "failed": 0, "lanes_total": 2},
-        "f16*f16->f32": sweep_lane(1000.0),
-        "e4m3*e4m3->f32": sweep_lane(2000.0),
+        "protocol": {"shape": list(SHAPE), "check_shape": [64, 1024, 256],
+                     "tiles": list(TILES), "warmups": 2, "reps": 5,
+                     "sample": "one call inside the timer", "mode": "multiply",
+                     "seed": 1,
+                     "lanes_requested": lanes_requested or
+                     (["f16*f16->f32", "e4m3*e4m3->f32"] if f16 else ["e4m3*e4m3->f32"])},
+        "results": {"ok": 2 if f16 else 1, "wrong": 0, "failed": 0,
+                    "lanes_total": 2 if f16 else 1},
+        "e4m3*e4m3->f32": lane_from_samples({TILES[0]: samples_for(2000.0),
+                                             TILES[1]: samples_for(1980.0)}),
     }
+    if f16:
+        rec["f16*f16->f32"] = lane_from_samples({TILES[0]: samples_for(1000.0),
+                                                 TILES[1]: samples_for(990.0)})
+    if version is not None:
+        rec["receipt_schema"] = version
     if complete is not None:
         rec["complete"] = complete
     return rec
@@ -76,34 +97,79 @@ def legacy_receipt(device_name="Apple M9", architecture="applegpu_g99",
     }
 
 
+def int_row(lane, tile, shape, rate, status="ok", stage="timed", reps=7):
+    m, k, n = shape
+    row = {"lane": lane, "tile": list(tile), "M": m, "K": k, "N": n,
+           "status": status, "stage": stage, "packing": None,
+           "packing_attempts": [],
+           "checks": [{"stage": "check_shape", "rel_err": 0.0,
+                       "tolerance": "exact", "ok": True},
+                      {"stage": f"rate_shape_{m}x{k}x{n}", "rel_err": 0.0,
+                       "tolerance": "exact", "ok": True}]}
+    if status == "ok":
+        mmin = 2.0 * m * k * n / (rate * 1e6)
+        ts = [round(mmin * (1 + 0.01 * i), 3) for i in range(reps)]
+        mb = min(ts) * (1 + 1e-9)
+        row.update({"ms_best": mb, "ms_med": statistics.median(ts),
+                    "ms_samples": ts, "gops_best": 2.0 * m * k * n / (mb * 1e6),
+                    "gops_med": 2.0 * m * k * n / (statistics.median(ts) * 1e6)})
+    return row
+
+
 def integer_receipt(device_name="Apple M9", architecture="applegpu_g99",
-                    memory_size=32 * 2**30, mlx="0.32.3"):
+                    memory_size=32 * 2**30, mlx="0.32.3", version=3,
+                    lanes=("f16*f16->f32", "i8*i8->i32"), reps=7):
+    shapes = [(2048, 4096, 4096), (4096, 4096, 4096)]
     rows = []
-    for lane, rate in (("f16*f16->f32", 1000.0), ("i8*i8->i32", 2000.0)):
+    for lane in lanes:
+        rate = 1000.0 if lane.startswith("f16") else 2000.0
         for tile in ([64, 128, 4], [64, 64, 2]):
-            for shape in ([2048, 4096, 4096], [4096, 4096, 4096]):
-                rows.append({"lane": lane, "tile": tile, "status": "ok",
-                             "M": shape[0], "K": shape[1], "N": shape[2],
-                             "ms_samples": [10.0, 10.1],
-                             "gops_best": rate if tile == [64, 128, 4] else rate * 0.99,
-                             "gops_med": rate * 0.99,
-                             "checks": [{"stage": "check_shape", "rel_err": 0.0,
-                                         "tolerance": "exact", "ok": True}]})
-    return {
+            for shape in shapes:
+                rows.append(int_row(lane, tile, shape, rate * shape[0] / 2048.0,
+                                    reps=reps))
+    rec = {
         "probe": "apple-matrix-capabilities/integer_lanes",
-        "receipt_schema": 2,
         "probe_sha256": "0" * 64,
         "mlx": mlx,
         "device": {"device_name": device_name, "architecture": architecture,
                    "memory_size": memory_size},
-        "protocol": {"shapes": ["2048x4096x4096", "4096x4096x4096"],
+        "relaxed": False, "calls": 4, "reps": reps,
+        "protocol": {"shapes": [f"{m}x{k}x{n}" for m, k, n in shapes],
                      "check_shape": "128x256x256",
                      "tiles": ["64x128x4", "64x64x2"],
-                     "warmups": 2, "seed": 1, "sample": "timer test"},
+                     "lanes_requested": list(lanes),
+                     "warmups": 2, "seed": 1, "reps": reps,
+                     "sample": "batched timer", "packing_checked": "lo-first"},
         "complete": True,
-        "results": {"rows_ok": 8, "rows_wrong": 0, "rows_failed": 0,
-                    "rows_total": 8},
         "rows": rows,
+    }
+    rec["results"] = {"rows_ok": sum(1 for r in rows if r["status"] == "ok"),
+                      "rows_wrong": 0, "rows_failed": 0, "rows_total": len(rows)}
+    if version is not None:
+        rec["receipt_schema"] = version
+    return rec
+
+
+def geometry_receipt(device_name="Apple M9", architecture="applegpu_g99",
+                     memory_size=32 * 2**30, version=3):
+    shapes = {"shape_a": list(SHAPE)}
+    cell = lane_from_samples({TILES[0]: samples_for(3000.0)})
+    return {
+        "probe": "apple-matrix-capabilities/geometry_sweep",
+        "receipt_schema": version,
+        "probe_sha256": "0" * 64,
+        "mlx": "0.32.3",
+        "device": {"device_name": device_name, "architecture": architecture,
+                   "memory_size": memory_size},
+        "protocol": {"shapes": shapes, "lanes_requested": ["f16*f16->f32"],
+                     "tiles": list(TILES), "check_shape": [64, 1024, 256],
+                     "rate_shape": list(SHAPE), "warmups": 2, "reps": 5,
+                     "seed": 1, "mode": "multiply", "sample": "timer"},
+        "lane_meta": {"f16*f16->f32": {"relaxed_precision": False,
+                                       "packing": None, "packing_attempts": []}},
+        "complete": True,
+        "lanes": {"f16*f16->f32": {"shape_a": cell}},
+        "results": {"cells_ok": 1, "cells_total": 1},
     }
 
 
@@ -127,6 +193,11 @@ class Fixture(unittest.TestCase):
             json.dump(rec, f)
         return f"receipts/m9/{name}"
 
+    def rewrite_raw(self, text, name="lane_sweep.json"):
+        path = os.path.join(self.root, "receipts", "m9", name)
+        with open(path, "w") as f:
+            f.write(text)
+
     def cell(self, rate=2000.0, ratio=2.0, receipt="receipts/m9/lane_sweep.json"):
         return {"gops_best": rate, "vs_f16": ratio, "receipt": receipt}
 
@@ -148,10 +219,11 @@ class TestValidator(Fixture):
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
         self.assertEqual(bm.validate(cap, self.root), [])
 
-    def test_pre_flag_receipt_accepted_when_coverage_proves_completion(self):
-        # Receipts written before the `complete` flag exist; coverage
-        # (lanes recorded == lanes requested, consistent counts) proves them.
-        self.write_receipt(sweep_receipt(complete=None))
+    def test_v2_pre_flag_receipt_accepted_when_coverage_infers(self):
+        # Schema-2 receipts predate explicit requested-work fields; coverage is
+        # inferred from surviving rows and labelled as such in the views.
+        rec = sweep_receipt(version=2, complete=None)
+        self.write_receipt(rec)
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
         self.assertEqual(bm.validate(cap, self.root), [])
 
@@ -173,13 +245,165 @@ class TestValidator(Fixture):
         cap = self.cap({"e4m3*e4m3->f32": self.cell(receipt=name)})
         self.assert_error(bm.validate(cap, self.root), "predates schema 2")
 
+    def test_unsupported_receipt_version_rejected(self):
+        rec = sweep_receipt()
+        rec["receipt_schema"] = 999
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        errors = bm.validate(cap, self.root)
+        self.assert_error(errors, "schema:")
+        self.assert_error(errors, "unsupported receipt_schema")
+
+    # --- finding 3: numerical consistency, each mutation must fail ----------
+
+    def test_passing_check_with_large_error_rejected(self):
+        rec = sweep_receipt()
+        rec["e4m3*e4m3->f32"]["checks"][1]["rel_err"] = 1.0  # tolerance 1e-5
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "exceeds tolerance")
+
+    def test_missing_rate_shape_check_rejected(self):
+        rec = sweep_receipt()
+        rec["e4m3*e4m3->f32"]["checks"] = [
+            c for c in rec["e4m3*e4m3->f32"]["checks"]
+            if c.get("stage") != "rate_shape" or c.get("tile") != TILES[1]]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "no passing rate_shape check")
+
+    def test_samples_scaled_without_rates_rejected(self):
+        rec = sweep_receipt()
+        lane = rec["e4m3*e4m3->f32"]
+        lane["samples"][TILES[0]] = [t * 100 for t in lane["samples"][TILES[0]]]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "samples-derived")
+
+    def test_missing_samples_rejected(self):
+        rec = sweep_receipt()
+        del rec["e4m3*e4m3->f32"]["samples"]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "without timing samples")
+
+    def test_wrong_sample_count_rejected(self):
+        rec = sweep_receipt()
+        rec["e4m3*e4m3->f32"]["samples"][TILES[0]] = \
+            rec["e4m3*e4m3->f32"]["samples"][TILES[0]][:3]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "sample count")
+
+    def test_baseline_gops_doubled_rejected(self):
+        rec = sweep_receipt()
+        rec["f16*f16->f32"]["gops_best"] *= 2
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "gops_best")
+
+    def test_baseline_rates_emptied_rejected(self):
+        rec = sweep_receipt()
+        rec["f16*f16->f32"]["rates"] = {}
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "without tile rates")
+
+    def test_uncited_geometry_cell_tampered_rejected(self):
+        rec = geometry_receipt()
+        rec["lanes"]["f16*f16->f32"]["shape_a"]["gops_best"] = 1e10
+        self.write_receipt(rec, "geometry_sweep.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "geometry_sweep.json")
+
+    def test_non_finite_number_anywhere_rejected(self):
+        path = os.path.join(self.root, "receipts", "m9", "geometry_sweep.json")
+        with open(path, "w") as f:
+            json.dump(geometry_receipt(), f)
+        with open(path) as f:
+            text = f.read()
+        self.assertIn('"memory_size": 34359738368', text)
+        self.rewrite_raw(text.replace('"memory_size": 34359738368',
+                                      '"memory_size": 1e999'),
+                         "geometry_sweep.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "non-finite number")
+
+    def test_v3_integer_missing_requested_rows_rejected(self):
+        rec = integer_receipt()
+        rec["rows"] = [r for r in rec["rows"] if r["M"] != 4096]
+        rec["results"] = {"rows_ok": len(rec["rows"]), "rows_wrong": 0,
+                          "rows_failed": 0, "rows_total": len(rec["rows"])}
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "no terminal row")
+
+    def test_v3_integer_extra_rows_rejected(self):
+        rec = integer_receipt()
+        rec["rows"].append(int_row("i8*i8->i32", [64, 32, 4], SHAPE, 2000.0))
+        rec["results"]["rows_total"] = len(rec["rows"])
+        rec["results"]["rows_ok"] = len(rec["rows"])
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "outside the requested work")
+
+    def test_integer_ms_best_mismatch_rejected(self):
+        rec = integer_receipt()
+        row = next(r for r in rec["rows"] if r["lane"] == "i8*i8->i32"
+                   and r["M"] == 2048 and r["tile"] == [64, 128, 4])
+        row["ms_best"] *= 2
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "ms_best")
+
+    def test_v3_packed_lane_without_attempts_rejected(self):
+        rec = sweep_receipt(lanes_requested=["fp4*fp4->f32"])
+        rec["fp4*fp4->f32"] = lane_from_samples({TILES[0]: samples_for(500.0)},
+                                                attempts=None)
+        rec["fp4*fp4->f32"]["packing"] = "lo"
+        del rec["fp4*fp4->f32"]["packing_attempts"]
+        rec["results"] = {"ok": 1, "wrong": 0, "failed": 0, "lanes_total": 1}
+        del rec["f16*f16->f32"]
+        del rec["e4m3*e4m3->f32"]
+        self.write_receipt(rec)
+        cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
+        self.assert_error(bm.validate(cap, self.root), "packing_attempts")
+
+    def test_ok_status_with_failed_check_rejected_by_walk(self):
+        rec = sweep_receipt()
+        rec["e4m3*e4m3->f32"]["checks"][1]["ok"] = False
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "recorded check failed")
+
+    def test_deleted_checks_under_ok_rejected_by_walk(self):
+        rec = sweep_receipt()
+        del rec["e4m3*e4m3->f32"]["checks"]
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "without any recorded check")
+
+    def test_protocol_mode_and_shape_enforced(self):
+        rec = sweep_receipt()
+        rec["protocol"]["mode"] = "add"
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "schema:")
+        rec = sweep_receipt()
+        rec["protocol"]["shape"] = [1024, 4096, 4096]
+        self.write_receipt(rec)
+        self.assert_error(bm.validate(cap, self.root), "protocol.shape")
+
+    # --- structural / identity / fidelity (carried from the first pass) -----
+
     def test_fabricated_lane_rejected(self):
         cap = self.cap({"made*up->f32": self.cell()})
         self.assert_error(bm.validate(cap, self.root), "lane not in")
 
     def test_tampered_rate_and_ratio_rejected(self):
-        # Doubling the rate and the ratio keeps them consistent with each other,
-        # but not with the receipt.
         cap = self.cap({"e4m3*e4m3->f32": self.cell(rate=4000.0, ratio=4.0)})
         self.assert_error(bm.validate(cap, self.root), "!= receipt's")
 
@@ -226,55 +450,6 @@ class TestValidator(Fixture):
         self.assert_error(errors, "memory_size")
         self.assert_error(errors, "gpu_cores")
 
-    def test_mlx_mismatch_rejected(self):
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()}, mlx_at_measurement="0.31.0")
-        self.assert_error(bm.validate(cap, self.root), "mlx")
-
-    def test_nonfinite_rejected(self):
-        cap = self.cap({"e4m3*e4m3->f32": self.cell(rate=float("inf"), ratio=2.0)})
-        errors = bm.validate(cap, self.root)
-        self.assert_error(errors, "finite and positive")
-
-    def test_nan_receipt_text_rejected(self):
-        path = os.path.join(self.root, "receipts", "m9", "nan.json")
-        with open(path, "w") as f:
-            f.write('{"probe": "x", "mlx": "0.32.3", "device": {"device_name": '
-                    '"Apple M9", "architecture": "applegpu_g99"}, "f16*f16->f32": '
-                    '{"status": "ok", "gops_best": NaN}}')
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "non-strict JSON")
-
-    def test_nonfinite_number_in_receipt_rejected_by_walk(self):
-        path = os.path.join(self.root, "receipts", "m9", "lane_sweep.json")
-        with open(path) as f:
-            text = f.read()
-        self.assertIn('"64x128x4": 2000.0', text)
-        with open(path, "w") as f:
-            f.write(text.replace('"64x128x4": 2000.0', '"64x128x4": 1e999', 1))
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "not finite")
-
-    def test_ok_status_with_failed_check_rejected_by_walk(self):
-        rec = sweep_receipt()
-        rec["e4m3*e4m3->f32"]["checks"][0]["ok"] = False
-        self.write_receipt(rec)
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "recorded check failed")
-
-    def test_deleted_checks_under_ok_rejected_by_walk(self):
-        rec = sweep_receipt()
-        del rec["e4m3*e4m3->f32"]["checks"]
-        self.write_receipt(rec)
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "without any recorded check")
-
-    def test_unrecognized_receipt_schema_rejected(self):
-        rec = sweep_receipt()
-        rec["receipt_schema"] = "two"
-        self.write_receipt(rec)
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "schema:")
-
     def test_receipt_gpu_cores_mismatch_rejected_when_present(self):
         rec = sweep_receipt()
         rec["device"]["gpu_cores"] = 12
@@ -289,16 +464,21 @@ class TestValidator(Fixture):
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
         self.assert_error(bm.validate(cap, self.root), "no device.memory_size")
 
-    def test_protocol_mode_and_shape_enforced(self):
-        rec = sweep_receipt()
-        rec["protocol"]["mode"] = "add"
-        self.write_receipt(rec)
+    def test_mlx_mismatch_rejected(self):
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()}, mlx_at_measurement="0.31.0")
+        self.assert_error(bm.validate(cap, self.root), "mlx")
+
+    def test_nonfinite_cell_rate_rejected(self):
+        cap = self.cap({"e4m3*e4m3->f32": self.cell(rate=float("inf"), ratio=2.0)})
+        self.assert_error(bm.validate(cap, self.root), "finite and positive")
+
+    def test_nan_receipt_text_rejected(self):
+        self.rewrite_raw(
+            '{"probe": "x", "mlx": "0.32.3", "device": {"device_name": '
+            '"Apple M9", "architecture": "applegpu_g99"}, "f16*f16->f32": '
+            '{"status": "ok", "gops_best": NaN}}')
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
-        self.assert_error(bm.validate(cap, self.root), "schema:")
-        rec = sweep_receipt()
-        rec["protocol"]["shape"] = [1024, 4096, 4096]
-        self.write_receipt(rec)
-        self.assert_error(bm.validate(cap, self.root), "protocol.shape")
+        self.assert_error(bm.validate(cap, self.root), "non-strict JSON")
 
     def test_uncited_malformed_receipt_fails_walk(self):
         rec = sweep_receipt()
@@ -334,27 +514,50 @@ class TestValidator(Fixture):
 class TestViews(Fixture):
     def test_views_flag_wide_sample_spread(self):
         rec = sweep_receipt()
-        rec["e4m3*e4m3->f32"]["samples"] = {"64x128x4": [1.0, 3.0],
-                                            "64x64x2": [1.0, 1.0]}
+        ts = rec["e4m3*e4m3->f32"]["samples"][TILES[0]]
+        ts[-1] = round(ts[-1] * 3, 3)  # spread > 2x, minimum (and rate) unchanged
         self.write_receipt(rec)
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        cell = rec["e4m3*e4m3->f32"]
+        cap = self.cap({"e4m3*e4m3->f32": self.cell(
+            rate=cell["gops_best"],
+            ratio=round(cell["gops_best"] / rec["f16*f16->f32"]["gops_best"], 3))})
         self.assertEqual(bm.validate(cap, self.root), [])
         md, csv_text = bm.build(cap, self.root)
         self.assertIn("⚠", md)
         self.assertIn("spread>2x", csv_text)
 
-    def test_views_have_baseline_and_receipt_index(self):
+    def test_uncited_geometry_receipt_spread_rendered(self):
+        rec = geometry_receipt()
+        ts = rec["lanes"]["f16*f16->f32"]["shape_a"]["samples"][TILES[0]]
+        ts[-1] = round(ts[-1] * 3, 3)  # spread > 2x, minimum (and rate) unchanged
+        self.write_receipt(rec, "geometry_sweep.json")
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assertEqual(bm.validate(cap, self.root), [])
         md, _ = bm.build(cap, self.root)
-        self.assertIn("f16 baseline (GOPS)", md)
-        self.assertIn("f16 denominator per chip", md)
-        self.assertIn("## Receipts", md)
-        self.assertIn("receipts/m9/lane_sweep.json", md)
+        self.assertIn("geometry_sweep.json` | `apple-matrix-capabilities/geometry_sweep`", md)
+        self.assertIn("× ⚠", md)
+        self.assertRegex(md, r"geometry_sweep\.json.*shape_a")
 
-    def test_completion_label_reported_in_index(self):
-        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+    def test_views_have_per_receipt_baselines(self):
+        name = self.write_receipt(integer_receipt(), "integer_lanes.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell(),
+                        "i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt=name)})
+        md, csv_text = bm.build(cap, self.root)
+        self.assertIn("f16 baselines (GOPS, by receipt)", md)
+        self.assertIn("baseline_gops", csv_text)
+        self.assertIn("baseline_receipt", csv_text)
+        self.assertNotIn("f16 denominator per chip", md)
+
+    def test_completion_labels_reported_in_index(self):
+        name = self.write_receipt(sweep_receipt(version=2, complete=None),
+                                  "lane_sweep_v2.json")
+        self.write_receipt(sweep_receipt(version=3, complete=None),
+                           "lane_sweep_v3_coverage.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell(receipt=name)})
         md, _ = bm.build(cap, self.root)
-        self.assertIn("| flag |", md)
+        self.assertIn("coverage (inferred, v2)", md)
+        self.assertIn("coverage (v3)", md)
 
 
 if __name__ == "__main__":

@@ -7,10 +7,10 @@
     {
       "title": "lane_sweep (float/mixed sweep)",
       "type": "object",
-      "required": ["probe", "mlx", "device", "protocol", "f16*f16->f32"],
+      "required": ["probe", "mlx", "device", "protocol"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/lane_sweep"},
-        "receipt_schema": {"type": "integer", "minimum": 1},
+        "receipt_schema": {"enum": [2, 3]},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/sweep_protocol"},
@@ -28,7 +28,7 @@
       "required": ["probe", "mlx", "device", "protocol", "rows"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/integer_lanes"},
-        "receipt_schema": {"type": "integer", "minimum": 1},
+        "receipt_schema": {"enum": [2, 3]},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/integer_protocol"},
@@ -43,7 +43,7 @@
       "required": ["probe", "mlx", "device", "protocol", "lanes"],
       "properties": {
         "probe": {"const": "apple-matrix-capabilities/geometry_sweep"},
-        "receipt_schema": {"type": "integer", "minimum": 1},
+        "receipt_schema": {"enum": [2, 3]},
         "mlx": {"type": "string"},
         "device": {"$ref": "#/$defs/device"},
         "protocol": {"$ref": "#/$defs/geometry_protocol"},
@@ -149,7 +149,8 @@
         "tile": {"type": "string"},
         "rel_err": {"type": ["number", "null"]},
         "tolerance": {"type": ["number", "string", "null"]},
-        "ok": {"type": "boolean"}
+        "ok": {"type": "boolean"},
+        "non_finite": {"type": "boolean"}
       }
     },
     "error": {
@@ -158,6 +159,7 @@
       "properties": {
         "phase": {"type": "string"},
         "type": {"type": "string"},
+        "category": {"type": "string"},
         "message": {"type": "string"}
       }
     },
@@ -176,7 +178,8 @@
         "tile_errors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/error"}},
         "error": {"$ref": "#/$defs/error"},
         "relaxed_precision": {"type": "boolean"},
-        "packing": {"type": ["string", "null"]}
+        "packing": {"type": ["string", "null"]},
+        "packing_attempts": {"type": "array", "items": {"type": "string"}}
       }
     },
     "int_row": {
@@ -186,6 +189,7 @@
         "lane": {"type": "string"},
         "tile": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
         "status": {"enum": ["ok", "wrong", "failed"]},
+        "stage": {"type": "string"},
         "M": {"type": "integer"},
         "K": {"type": "integer"},
         "N": {"type": "integer"},
