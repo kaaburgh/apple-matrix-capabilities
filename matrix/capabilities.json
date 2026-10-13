@@ -22,102 +22,102 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 14062.8,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 1.057
+     "gops_best": 14055.5,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 1.084
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 13045.4,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.98
+     "gops_best": 13037.7,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 1.006
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 9827.4,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.738
+     "gops_best": 9962.1,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.769
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 9100.7,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.684
+     "gops_best": 9230.9,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.712
     },
     "f16*f16->f32": {
-     "gops_best": 13308.8,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
+     "gops_best": 12961.0,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 12095.7,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.909
+     "gops_best": 12041.8,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.929
     },
     "f16*f16->f16": {
-     "gops_best": 12176.118424714392,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 0.999
+     "gops_best": 12069.503543398825,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 0.975
     },
     "bf16*bf16->f32": {
-     "gops_best": 12213.425452526984,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 1.002
+     "gops_best": 12452.940616428641,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 1.006
     },
     "f32*f32->f32": {
-     "gops_best": 6682.8,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.502
+     "gops_best": 6480.0,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.5
     },
     "strict_f32*f32->f32": {
-     "gops_best": 3671.5,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.276
+     "gops_best": 3646.2,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.281
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 9073.6,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.682
+     "gops_best": 9186.1,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.709
     },
     "f16*fp4->f32": {
-     "gops_best": 12451.7,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.936
+     "gops_best": 12482.6,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.963
     },
     "f16*e4m3->f32": {
-     "gops_best": 13708.8,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 1.03
+     "gops_best": 13632.0,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 1.052
     },
     "f16_mx_e4m3->f32": {
-     "gops_best": 8885.1,
-     "receipt": "receipts/m5-air/lane_sweep_v2.json",
-     "vs_f16": 0.668
+     "gops_best": 8878.1,
+     "receipt": "receipts/m5-air/lane_sweep_v3.json",
+     "vs_f16": 0.685
     },
     "f16*i8->f32": {
-     "gops_best": 10955.712186270212,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 0.899
+     "gops_best": 11048.036378836836,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 0.893
     },
     "f16*i4b->f32": {
-     "gops_best": 13427.700438426873,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 1.102
+     "gops_best": 13305.50698531014,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 1.075
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 25809.22350975514,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 2.118
+     "gops_best": 24579.794555876466,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 1.986
     },
     "i8*i4b->i32": {
-     "gops_best": 21611.2448963054,
-     "receipt": "receipts/m5-air/integer_lanes_v2.json",
-     "vs_f16": 1.774
+     "gops_best": 21494.146557937445,
+     "receipt": "receipts/m5-air/integer_lanes_v3.json",
+     "vs_f16": 1.737
     }
    },
    "gpu_cores": 10,
-   "note": "Measured on the 10-core M5 Air SKU (M5 Air ships with fewer GPU cores in some configurations); other SKUs were not measured. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved."
+   "note": "Measured on the 10-core M5 Air SKU (M5 Air ships with fewer GPU cores in some configurations); other SKUs were not measured. Cells cite the schema-3 re-run receipts (lane_sweep_v3.json, integer_lanes_v3.json; 2026-10-14); the earlier v1/v2 receipts are preserved."
   },
   "m5-max": {
    "device_name": "Apple M5 Max",
@@ -132,102 +132,102 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 52976.6,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 1.024
+     "gops_best": 51162.3,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.989
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 51621.9,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.998
+     "gops_best": 51167.1,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.989
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 42495.9,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.822
+     "gops_best": 41418.1,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.801
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 38516.3,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.745
+     "gops_best": 37952.6,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.734
     },
     "f16*f16->f32": {
-     "gops_best": 51720.6,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
+     "gops_best": 51727.1,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 48193.2,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.932
+     "gops_best": 48069.6,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.929
     },
     "f16*f16->f16": {
-     "gops_best": 62453.315509417705,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
-     "vs_f16": 1.007
+     "gops_best": 62072.533354031926,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
+     "vs_f16": 0.993
     },
     "bf16*bf16->f32": {
-     "gops_best": 62102.922712185886,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
+     "gops_best": 62586.62953909552,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
      "vs_f16": 1.001
     },
     "f32*f32->f32": {
-     "gops_best": 32245.0,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.623
+     "gops_best": 32314.5,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.625
     },
     "strict_f32*f32->f32": {
-     "gops_best": 14523.4,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
+     "gops_best": 14525.9,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
      "vs_f16": 0.281
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 43310.6,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.837
+     "gops_best": 42284.6,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.817
     },
     "f16*fp4->f32": {
-     "gops_best": 51920.9,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 1.004
+     "gops_best": 52937.5,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 1.023
     },
     "f16*e4m3->f32": {
-     "gops_best": 56048.0,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 1.084
+     "gops_best": 54090.3,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 1.046
     },
     "f16_mx_e4m3->f32": {
-     "gops_best": 41721.9,
-     "receipt": "receipts/m5-max/lane_sweep_v2.json",
-     "vs_f16": 0.807
+     "gops_best": 41791.7,
+     "receipt": "receipts/m5-max/lane_sweep_v3.json",
+     "vs_f16": 0.808
     },
     "f16*i8->f32": {
-     "gops_best": 60974.44321780066,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
-     "vs_f16": 0.983
+     "gops_best": 61704.45206412612,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
+     "vs_f16": 0.987
     },
     "f16*i4b->f32": {
-     "gops_best": 61534.66012634717,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
-     "vs_f16": 0.992
+     "gops_best": 61308.204687011304,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
+     "vs_f16": 0.98
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 114817.54138920791,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
-     "vs_f16": 1.851
+     "gops_best": 115093.92814459505,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
+     "vs_f16": 1.84
     },
     "i8*i4b->i32": {
-     "gops_best": 93691.07404590915,
-     "receipt": "receipts/m5-max/integer_lanes_v2.json",
-     "vs_f16": 1.51
+     "gops_best": 94359.76002569866,
+     "receipt": "receipts/m5-max/integer_lanes_v3.json",
+     "vs_f16": 1.509
     }
    },
    "gpu_cores": 40,
-   "note": "Measured on the 40-core M5 Max SKU; other M5 Max configurations were not measured. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved."
+   "note": "Measured on the 40-core M5 Max SKU; other M5 Max configurations were not measured. Cells cite the schema-3 re-run receipts (lane_sweep_v3.json, integer_lanes_v3.json; 2026-10-14); the v1/v2 receipts are preserved."
   },
   "m5-pro": {
    "device_name": "Apple M5 Pro",
@@ -242,142 +242,142 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 29435.4,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 1.006
+     "gops_best": 29437.5,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.037
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 27114.5,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.927
+     "gops_best": 27144.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.956
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 23096.7,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.789
+     "gops_best": 23080.2,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.813
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 20850.9,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.713
+     "gops_best": 20798.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.733
     },
     "f16*f16->f32": {
-     "gops_best": 29256.3,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
+     "gops_best": 28391.6,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 25152.4,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.86
-    },
-    "f16*f16->f16": {
-     "gops_best": 31897.795040957626,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 1.001
-    },
-    "bf16*bf16->f32": {
-     "gops_best": 31874.828735834843,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 1.0
-    },
-    "f32*f32->f32": {
-     "gops_best": 15392.1,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.526
-    },
-    "strict_f32*f32->f32": {
-     "gops_best": 7571.9,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.259
-    },
-    "strict_f16*f16->f32": {
-     "gops_best": 28980.3,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 0.995
-    },
-    "strict_e4m3*e4m3->f32": {
-     "gops_best": 29374.1,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 1.008
-    },
-    "relaxed_mx_e4m3*e4m3->f32": {
-     "gops_best": 20842.8,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 0.715
-    },
-    "e5m2*e5m2->f32": {
-     "gops_best": 29476.5,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 1.012
-    },
-    "strict_e5m2*e5m2->f32": {
-     "gops_best": 29886.7,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 1.026
-    },
-    "t_e5m2*e5m2->f32": {
-     "gops_best": 26980.6,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
+     "gops_best": 26299.5,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
      "vs_f16": 0.926
     },
+    "f16*f16->f16": {
+     "gops_best": 31966.57313324519,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 0.999
+    },
+    "bf16*bf16->f32": {
+     "gops_best": 32010.313346002917,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 1.001
+    },
+    "f32*f32->f32": {
+     "gops_best": 16018.7,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.564
+    },
+    "strict_f32*f32->f32": {
+     "gops_best": 7564.7,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.266
+    },
+    "strict_f16*f16->f32": {
+     "gops_best": 29403.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.036
+    },
+    "strict_e4m3*e4m3->f32": {
+     "gops_best": 29616.2,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.043
+    },
+    "relaxed_mx_e4m3*e4m3->f32": {
+     "gops_best": 23248.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.819
+    },
+    "e5m2*e5m2->f32": {
+     "gops_best": 29652.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.044
+    },
+    "strict_e5m2*e5m2->f32": {
+     "gops_best": 29658.8,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.045
+    },
+    "t_e5m2*e5m2->f32": {
+     "gops_best": 27302.1,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.962
+    },
     "mx_e5m2*e5m2->f32": {
-     "gops_best": 23171.7,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 0.795
+     "gops_best": 23075.1,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.813
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 22898.9,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.783
+     "gops_best": 23342.5,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.822
     },
     "f16*fp4->f32": {
-     "gops_best": 28541.5,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.976
+     "gops_best": 28884.3,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.017
     },
     "f16*e4m3->f32": {
-     "gops_best": 29428.1,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 1.006
+     "gops_best": 28744.4,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.012
     },
     "f16_mx_e4m3->f32": {
-     "gops_best": 22683.1,
-     "receipt": "receipts/m5-pro/lane_sweep_v2.json",
-     "vs_f16": 0.775
+     "gops_best": 22727.8,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 0.801
     },
     "f16*i8->f32": {
-     "gops_best": 31473.068021628682,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 0.988
+     "gops_best": 31322.440674778438,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 0.979
     },
     "f16*i4b->f32": {
-     "gops_best": 31300.298850709645,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 0.982
+     "gops_best": 31475.62308112175,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 0.984
     },
     "f16*e5m2->f32": {
-     "gops_best": 29502.8,
-     "receipt": "receipts/m5-pro/lane_sweep_v2_extras.json",
-     "vs_f16": 1.013
+     "gops_best": 29510.8,
+     "receipt": "receipts/m5-pro/lane_sweep_v3.json",
+     "vs_f16": 1.039
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 60901.276721194125,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 1.911
+     "gops_best": 60423.24468511384,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 1.889
     },
     "i8*i4b->i32": {
-     "gops_best": 50229.71752677562,
-     "receipt": "receipts/m5-pro/integer_lanes_v2.json",
-     "vs_f16": 1.576
+     "gops_best": 50127.42633018063,
+     "receipt": "receipts/m5-pro/integer_lanes_v3.json",
+     "vs_f16": 1.567
     }
    },
    "gpu_cores": 20,
-   "note": "Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved. The e5m2 and strict/relaxed ablation lanes cite lane_sweep_v2_extras.json."
+   "note": "Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone. Cells cite the schema-3 full-lane re-run (lane_sweep_v3.json, which includes the e5m2 and strict/relaxed ablation lanes; integer_lanes_v3.json; 2026-10-14); the earlier receipts are preserved."
   },
   "m6": {
    "device_name": "Apple M6",
@@ -392,142 +392,142 @@
    },
    "float_lanes": {
     "e4m3*e4m3->f32": {
-     "gops_best": 28601.8,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 2.073
+     "gops_best": 29044.1,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 2.084
     },
     "t_e4m3*e4m3->f32": {
-     "gops_best": 25859.5,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 1.875
+     "gops_best": 25792.4,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.851
     },
     "mx_e4m3*e4m3->f32": {
-     "gops_best": 14363.9,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 1.041
+     "gops_best": 14285.3,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.025
     },
     "mx_fp4*fp4->f32": {
-     "gops_best": 10626.8,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 0.77
+     "gops_best": 10626.1,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.763
     },
     "f16*f16->f32": {
-     "gops_best": 13795.0,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
+     "gops_best": 13933.4,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
      "vs_f16": 1.0
     },
     "fp4*fp4->f32": {
-     "gops_best": 14947.1,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 1.084
+     "gops_best": 14964.1,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.074
     },
     "f16*f16->f16": {
-     "gops_best": 14175.692696818976,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 1.068
+     "gops_best": 13465.001522349909,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 1.015
     },
     "bf16*bf16->f32": {
-     "gops_best": 13038.202632439208,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 0.983
+     "gops_best": 13234.451653377804,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 0.997
     },
     "f32*f32->f32": {
-     "gops_best": 6980.0,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 0.506
+     "gops_best": 6683.4,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.48
     },
     "strict_f32*f32->f32": {
-     "gops_best": 4200.8,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 0.305
+     "gops_best": 4183.2,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.3
     },
     "strict_f16*f16->f32": {
-     "gops_best": 13837.6,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.013
+     "gops_best": 13705.3,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.984
     },
     "strict_e4m3*e4m3->f32": {
-     "gops_best": 28977.7,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 2.122
+     "gops_best": 28803.1,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 2.067
     },
     "relaxed_mx_e4m3*e4m3->f32": {
-     "gops_best": 14353.9,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.051
+     "gops_best": 14337.0,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.029
     },
     "e5m2*e5m2->f32": {
-     "gops_best": 19704.5,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.443
+     "gops_best": 19784.6,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.42
     },
     "strict_e5m2*e5m2->f32": {
-     "gops_best": 19732.6,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.445
+     "gops_best": 19842.7,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.424
     },
     "t_e5m2*e5m2->f32": {
-     "gops_best": 17839.2,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.306
+     "gops_best": 17824.3,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.279
     },
     "mx_e5m2*e5m2->f32": {
-     "gops_best": 13494.5,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 0.988
+     "gops_best": 13486.7,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.968
     }
    },
    "mixed_lanes": {
     "f16_mx_fp4->f32": {
-     "gops_best": 11588.7,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 0.84
+     "gops_best": 11419.5,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.82
     },
     "f16*fp4->f32": {
-     "gops_best": 15197.5,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 1.102
+     "gops_best": 15170.4,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.089
     },
     "f16*e4m3->f32": {
-     "gops_best": 17045.5,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 1.236
+     "gops_best": 17093.2,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.227
     },
     "f16_mx_e4m3->f32": {
-     "gops_best": 10978.3,
-     "receipt": "receipts/m6/lane_sweep_v2d.json",
-     "vs_f16": 0.796
+     "gops_best": 10984.8,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 0.788
     },
     "f16*i8->f32": {
-     "gops_best": 12322.334783986418,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 0.929
+     "gops_best": 12869.920262695308,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 0.97
     },
     "f16*i4b->f32": {
-     "gops_best": 16481.34336266926,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 1.242
+     "gops_best": 16530.529486550513,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 1.246
     },
     "f16*e5m2->f32": {
-     "gops_best": 17046.9,
-     "receipt": "receipts/m6/lane_sweep_v2_extras.json",
-     "vs_f16": 1.248
+     "gops_best": 16963.9,
+     "receipt": "receipts/m6/lane_sweep_v3.json",
+     "vs_f16": 1.217
     }
    },
    "integer_lanes": {
     "i8*i8->i32": {
-     "gops_best": 30638.869356901276,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 2.309
+     "gops_best": 31251.513700479496,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 2.355
     },
     "i8*i4b->i32": {
-     "gops_best": 26889.062781679197,
-     "receipt": "receipts/m6/integer_lanes_v2d.json",
-     "vs_f16": 2.026
+     "gops_best": 26957.953941107102,
+     "receipt": "receipts/m6/integer_lanes_v3.json",
+     "vs_f16": 2.031
     }
    },
    "gpu_cores": 12,
-   "note": "Measured on the 12-core M6 SKU, on a machine shared with other occasional users: cells cite the monitored schema-2 runs (lane_sweep_v2d.json, lane_sweep_v2_extras.json, integer_lanes_v2d.json; process samples taken during the windows, all ours). Ablations in extras: strict == relaxed for f16/e4m3/e5m2 and scaled e4m3 is identical relaxed vs strict, so the e4m3 ~2x and the half-rate scale-plane path are precision-mode-independent; unscaled e5m2 runs ~1.44x f16, scaled ~1.0x. Float lanes agree within ~1% across runs; integer lanes varied up to ~9% (i8*i8 28.1-30.6k). Earlier receipts are preserved; the transposed fp8 lanes read 8-13% higher in the pre-v2 receipt, unresolved."
+   "note": "Measured on the 12-core M6 SKU, on a machine shared with other occasional users: cells cite the monitored schema-3 full-lane re-run (lane_sweep_v3.json, integer_lanes_v3.json; 2026-10-14; the operator reports that process samples during the run showed no unrelated compute). Same receipt: e4m3 runs 2.08x f16 and unscaled e5m2 1.42x f16; in this run, best-of-tiles strict/relaxed rates for f16, e4m3 and e5m2 differ by at most 1.7% and scaled e4m3 differs by 0.4% between modes, so the e4m3 advantage and the roughly half-rate scaled result persist in these aggregate measurements; per-tile rates vary. The earlier receipts are preserved."
   }
  },
  "unknown_chips": [
