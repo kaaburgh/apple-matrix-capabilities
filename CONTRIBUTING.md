@@ -34,15 +34,21 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
    `lane_sweep_2.json`) and cite that file from the cell — never overwrite evidence.
 
 3. Fill your chip's entries in `matrix/capabilities.json` from the receipts, each cell
-   referring to one. Leave any cell you did not measure absent or `unknown`.
+   referring to one. The matrix publishes **observed** rows only: leave any cell you did not
+   measure absent (unmeasured chips are listed in `unknown_chips`), and keep failed or partial
+   runs in the receipt where the status fields show exactly what happened. Evidence tags other
+   than `observed` (`reported`, `inferred`) are reserved and cannot carry measured cells
+   today.
 
 4. Regenerate the views and commit them:
    `pip install 'jsonschema>=4.18,<5' && python tools/build_matrix.py`. CI (on PRs and on
    `main`, Python 3.12) validates `matrix/capabilities.json` against `matrix/schema.json`,
    validates **every** receipt under `receipts/` against `receipts/schema.json` and the shared
-   semantic rules (finite numbers, statuses, protocol shape/mode, completion evidence), checks
-   every cell against the receipt it cites (lane existence and status, measured rate, baseline,
-   device identity, symlink-safe path containment), runs the regression tests
+   semantic rules (strict JSON with no non-finite numbers anywhere, statuses, check/error
+   consistency, rate-vs-samples and gops bindings, protocol shape/mode, completion evidence),
+   checks every cell against the receipt it cites (lane existence and status, measured rate,
+   per-cell baseline, device identity, symlink-safe path containment), runs the regression
+   tests
    (`python -m unittest discover -s tests`), and fails if the views are stale. Edit
    `capabilities.json` only — never the generated files.
 
@@ -54,11 +60,12 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
 - **No cell without a receipt.** Corrections, additions and removals all need one — and it
   must be a schema-2 receipt with proven completion; the map publishes observed rows only.
 - **One chip per receipt.** Do not average machines or extrapolate across generations.
-- **`unknown` is a valid cell** and better than a guess. If a lane fails or is unavailable,
-  record that exact status.
+- **A failure is a result.** If a lane fails its check, fails to build, or is unavailable,
+  that exact status belongs in the receipt; do not fabricate or `inferred`-tag a number.
 - **Scope is capabilities**, not implementations: no model benchmarks and no vendor
-  speculation; the probe kernels in `probes/` are the point. If a cell is derived rather than
-  measured, tag it `inferred` and say from where.
+  speculation; the probe kernels in `probes/` are the point. Unmeasured cells stay absent;
+  the reserved `reported`/`inferred` tags are for a future source-linked representation, not
+  a workaround.
 - **Privacy**: the receipt is the artifact. Do not include process listings, hostnames,
   usernames, absolute home paths or raw logs in PRs, commit messages or attachments; the
   probes sanitize what they write, nothing else is sanitized for you.

@@ -1,6 +1,9 @@
 # The matrix
 
-`capabilities.json` is the machine-readable map and the single source of truth. The views
+`capabilities.json` is the machine-readable map and the single source of truth. Receipts
+declare a schema version (2 or 3; version 3 records the requested work explicitly, so
+completion can be compared against it — version 2 is historical and labelled as inferred in
+the views). The views
 [`MATRIX.md`](MATRIX.md) and [`capabilities.csv`](capabilities.csv) are generated from it by
 [`tools/build_matrix.py`](../tools/build_matrix.py) — do not edit them by hand. A JSON Schema
 for contributors is in [`schema.json`](schema.json); the build tool performs the stricter
