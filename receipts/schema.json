@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://precisit.dev/apple-matrix-capabilities/receipts.schema.json",
+  "title": "Capability probe receipt",
+  "description": "Accepted formats for files under receipts/. Three measured families (lane_sweep, integer_lanes, geometry_sweep) plus a legacy/imported branch for receipts produced before receipt_schema 2 or by sibling projects. Structural only: semantic checks (finite numbers, status consistency, protocol shape/mode, completion evidence, rate fidelity) live in tools/build_matrix.py.",
+  "oneOf": [
+    {
+      "title": "lane_sweep (float/mixed sweep)",
+      "type": "object",
+      "required": ["probe", "mlx", "device", "protocol", "f16*f16->f32"],
+      "properties": {
+        "probe": {"const": "apple-matrix-capabilities/lane_sweep"},
+        "mlx": {"type": "string"},
+        "device": {"$ref": "#/$defs/device"},
+        "protocol": {"$ref": "#/$defs/sweep_protocol"},
+        "complete": {"type": "boolean"},
+        "results": {"type": "object"},
+        "f16*f16->f32": {"$ref": "#/$defs/sweep_lane"}
+      },
+      "patternProperties": {
+        "^[A-Za-z0-9_*.>@-]+->[A-Za-z0-9_*.>@-]+$": {"$ref": "#/$defs/sweep_lane"}
+      }
+    },
+    {
+      "title": "integer_lanes (integer sweep)",
+      "type": "object",
+      "required": ["probe", "mlx", "device", "protocol", "rows"],
+      "properties": {
+        "probe": {"const": "apple-matrix-capabilities/integer_lanes"},
+        "mlx": {"type": "string"},
+        "device": {"$ref": "#/$defs/device"},
+        "protocol": {"$ref": "#/$defs/integer_protocol"},
+        "complete": {"type": "boolean"},
+        "results": {"type": "object"},
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/int_row"}}
+      }
+    },
+    {
+      "title": "geometry_sweep (shapes companion)",
+      "type": "object",
+      "required": ["probe", "mlx", "device", "protocol", "lanes"],
+      "properties": {
+        "probe": {"const": "apple-matrix-capabilities/geometry_sweep"},
+        "mlx": {"type": "string"},
+        "device": {"$ref": "#/$defs/device"},
+        "protocol": {"$ref": "#/$defs/geometry_protocol"},
+        "complete": {"type": "boolean"},
+        "results": {"type": "object"},
+        "lane_meta": {"type": "object"},
+        "lanes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/geom_cell"}
+          }
+        }
+      }
+    },
+    {
+      "title": "legacy or imported evidence receipt",
+      "description": "Receipts without a protocol block: pre-schema-2 capability receipts and receipts imported from sibling projects (p19b_mx_sweep, p23_mixed_fp8_lanes). Kept as background evidence; must not be cited by matrix cells.",
+      "type": "object",
+      "required": ["mlx", "device"],
+      "not": {"required": ["protocol"]},
+      "properties": {
+        "probe": {"type": "string"},
+        "mlx": {"type": "string"},
+        "device": {"$ref": "#/$defs/device"},
+        "rows": {"type": "array"}
+      },
+      "anyOf": [
+        {"required": ["rows"]},
+        {"required": ["e4m3*e4m3->f32"]}
+      ]
+    }
+  ],
+  "$defs": {
+    "device": {
+      "type": "object",
+      "required": ["device_name", "architecture"],
+      "properties": {
+        "device_name": {"type": "string"},
+        "architecture": {"type": "string"},
+        "memory_size": {"type": ["integer", "number"]},
+        "max_recommended_working_set_size": {"type": ["integer", "number"]},
+        "gpu_cores": {"type": ["integer", "string"]}
+      }
+    },
+    "sweep_protocol": {
+      "type": "object",
+      "required": ["shape", "tiles", "warmups", "reps", "mode", "seed"],
+      "properties": {
+        "shape": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+        "check_shape": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+        "tiles": {"type": "array", "items": {"type": "string"}},
+        "warmups": {"type": "integer", "minimum": 0},
+        "reps": {"type": "integer", "minimum": 1},
+        "sample": {"type": "string"},
+        "mode": {"const": "multiply"},
+        "seed": {"type": "integer"},
+        "lanes_requested": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "integer_protocol": {
+      "type": "object",
+      "required": ["shapes", "tiles", "warmups", "seed"],
+      "properties": {
+        "shapes": {"type": "array", "items": {"type": "string"}},
+        "check_shape": {"type": "string"},
+        "tiles": {"type": "array", "items": {"type": "string"}},
+        "warmups": {"type": "integer", "minimum": 0},
+        "seed": {"type": "integer"},
+        "sample": {"type": "string"},
+        "packing_checked": {"type": "string"}
+      }
+    },
+    "geometry_protocol": {
+      "type": "object",
+      "required": ["shapes", "warmups", "reps"],
+      "properties": {
+        "shapes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array", "items": {"type": "integer"},
+            "minItems": 3, "maxItems": 3
+          }
+        },
+        "lanes": {"type": "array", "items": {"type": "string"}},
+        "lanes_requested": {"type": "array", "items": {"type": "string"}},
+        "tiles": {"type": "array", "items": {"type": "string"}},
+        "check_shape": {"type": "array", "items": {"type": "integer"}},
+        "rate_shape": {"type": "array", "items": {"type": "integer"}},
+        "warmups": {"type": "integer", "minimum": 0},
+        "reps": {"type": "integer", "minimum": 1},
+        "seed": {"type": "integer"},
+        "mode": {"const": "multiply"},
+        "sample": {"type": "string"},
+        "rate": {"type": "string"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": ["ok"],
+      "properties": {
+        "stage": {"type": "string"},
+        "tile": {"type": "string"},
+        "rel_err": {"type": ["number", "null"]},
+        "tolerance": {"type": ["number", "string", "null"]},
+        "ok": {"type": "boolean"}
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["phase", "type"],
+      "properties": {
+        "phase": {"type": "string"},
+        "type": {"type": "string"},
+        "message": {"type": "string"}
+      }
+    },
+    "sweep_lane": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["ok", "wrong", "failed"]},
+        "gops_best": {"type": "number"},
+        "rates": {"type": "object", "additionalProperties": {"type": "number"}},
+        "samples": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "items": {"type": "number"}}
+        },
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "tile_errors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/error"}},
+        "error": {"$ref": "#/$defs/error"},
+        "relaxed_precision": {"type": "boolean"},
+        "packing": {"type": ["string", "null"]}
+      }
+    },
+    "int_row": {
+      "type": "object",
+      "required": ["lane", "tile", "status"],
+      "properties": {
+        "lane": {"type": "string"},
+        "tile": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+        "status": {"enum": ["ok", "wrong", "failed"]},
+        "M": {"type": "integer"},
+        "K": {"type": "integer"},
+        "N": {"type": "integer"},
+        "packing": {"type": ["string", "null"]},
+        "packing_attempts": {"type": "array", "items": {"type": "string"}},
+        "ms_best": {"type": "number"},
+        "ms_med": {"type": "number"},
+        "ms_samples": {"type": "array", "items": {"type": "number"}},
+        "gops_best": {"type": "number"},
+        "gops_med": {"type": "number"},
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "error": {"$ref": "#/$defs/error"}
+      }
+    },
+    "geom_cell": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["ok", "wrong", "failed"]},
+        "gops_best": {"type": "number"},
+        "rates": {"type": "object", "additionalProperties": {"type": "number"}},
+        "samples": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "items": {"type": "number"}}
+        },
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "tile_errors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/error"}},
+        "error": {"$ref": "#/$defs/error"}
+      }
+    }
+  }
+}

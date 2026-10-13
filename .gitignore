@@ -6,5 +6,8 @@ __pycache__/
 *.log
 /lane_sweep.json
 /integer_lanes.json
+/geometry_sweep.json
 /probes/lane_sweep.json
 /probes/integer_lanes.json
+/probes/geometry_sweep.json
+/REVIEW-DISCOURSE.md

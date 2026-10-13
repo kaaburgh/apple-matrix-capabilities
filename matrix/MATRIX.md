@@ -2,37 +2,37 @@
 
 > Generated from [`capabilities.json`](capabilities.json) by [`tools/build_matrix.py`](../tools/build_matrix.py). Do not edit by hand; edit the JSON and run the tool.
 
-Rates are GOPS measured at 2048×4096×4096 (`mode::multiply`), the best result the receipt records: the standard sweep tries five tile configurations and each receipt records the tiles its lanes actually ran. `vs f16` divides the same receipt's `f16*f16->f32` rate, so each chip is compared only with itself. These are lane probes, not model numbers. See [METHODS.md](../METHODS.md).
+Rates are GOPS measured at 2048×4096×4096 (`mode::multiply`), the best result the receipt records: the standard sweep tries five tile configurations and each receipt records the tiles its lanes actually ran. `vs f16` divides the same receipt's `f16*f16->f32` rate, so each chip is compared only with itself. A `⚠` marks a cell whose cited receipt shows a max/min timing spread above 2× across samples: treat it as unstable and rerun before building any dispatch rule on it. These are lane probes, not model numbers. See [METHODS.md](../METHODS.md) and [README.md](../README.md) for the evidence-status model (only observed, receipt-backed rows are published).
 
 ## Float lanes
 
 | Lane | M5 Air (10c) | M5 Pro (20c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|--:|
 | `bf16*bf16->f32` | 1.00× | 1.00× | 1.00× | 0.98× |
-| `e4m3*e4m3->f32` | 1.06× | 1.01× | 1.02× | **2.07×** |
+| `e4m3*e4m3->f32` | 1.06× | 1.01× | 1.02× ⚠ | **2.07×** |
 | `e5m2*e5m2->f32` | — | 1.01× | — | 1.44× |
 | `f16*f16->f16` | 1.00× | 1.00× | 1.01× | 1.07× |
-| `f16*f16->f32` | 1.00× | 1.00× | 1.00× | 1.00× |
+| `f16*f16->f32` | 1.00× | 1.00× ⚠ | 1.00× ⚠ | 1.00× |
 | `f32*f32->f32` | 0.50× | 0.53× | 0.62× | 0.51× |
-| `fp4*fp4->f32` | 0.91× | 0.86× | 0.93× | 1.08× |
+| `fp4*fp4->f32` | 0.91× | 0.86× | 0.93× ⚠ | 1.08× |
 | `mx_e4m3*e4m3->f32` | 0.74× | 0.79× | 0.82× | 1.04× |
 | `mx_e5m2*e5m2->f32` | — | 0.80× | — | 0.99× |
 | `mx_fp4*fp4->f32` | 0.68× | 0.71× | 0.74× | 0.77× |
 | `relaxed_mx_e4m3*e4m3->f32` | — | 0.71× | — | 1.05× |
-| `strict_e4m3*e4m3->f32` | — | 1.01× | — | **2.12×** |
-| `strict_e5m2*e5m2->f32` | — | 1.03× | — | 1.45× |
-| `strict_f16*f16->f32` | — | 0.99× | — | 1.01× |
+| `strict_e4m3*e4m3->f32` | — | 1.01× ⚠ | — | **2.12×** |
+| `strict_e5m2*e5m2->f32` | — | 1.03× ⚠ | — | 1.45× |
+| `strict_f16*f16->f32` | — | 0.99× ⚠ | — | 1.01× |
 | `strict_f32*f32->f32` | 0.28× | 0.26× | 0.28× | 0.30× |
-| `t_e4m3*e4m3->f32` | 0.98× | 0.93× | 1.00× | 1.88× |
+| `t_e4m3*e4m3->f32` | 0.98× | 0.93× | 1.00× ⚠ | 1.88× |
 | `t_e5m2*e5m2->f32` | — | 0.93× | — | 1.31× |
 
 ## Mixed lanes
 
 | Lane | M5 Air (10c) | M5 Pro (20c) | M5 Max (40c) | M6 (12c) |
 |---|--:|--:|--:|--:|
-| `f16*e4m3->f32` | 1.03× | 1.01× | 1.08× | 1.24× |
-| `f16*e5m2->f32` | — | 1.01× | — | 1.25× |
-| `f16*fp4->f32` | 0.94× | 0.98× | 1.00× | 1.10× |
+| `f16*e4m3->f32` | 1.03× | 1.01× ⚠ | 1.08× ⚠ | 1.24× |
+| `f16*e5m2->f32` | — | 1.01× ⚠ | — | 1.25× |
+| `f16*fp4->f32` | 0.94× | 0.98× ⚠ | 1.00× | 1.10× |
 | `f16*i4b->f32` | 1.10× | 0.98× | 0.99× | 1.24× |
 | `f16*i8->f32` | 0.90× | 0.99× | 0.98× | 0.93× |
 | `f16_mx_e4m3->f32` | 0.67× | 0.78× | 0.81× | 0.80× |
@@ -47,12 +47,21 @@ Rates are GOPS measured at 2048×4096×4096 (`mode::multiply`), the best result 
 
 ## Machines
 
-| Key | Device | Architecture | GPU cores | Memory | MLX at measurement |
-|---|---|---|---:|---:|---|
-| `m5-air` | Apple M5 | `applegpu_g17g` | 10 | 32 GB | 0.32.3 |
-| `m5-pro` | Apple M5 Pro | `applegpu_g17s` | 20 | 64 GB | 0.32.3 |
-| `m5-max` | Apple M5 Max | `applegpu_g17s` | 40 | 128 GB | 0.32.3 |
-| `m6` | Apple M6 | `applegpu_g18g` | 12 | 32 GB | 0.32.3 |
+| Key | Device | Architecture | GPU cores | Memory | f16 baseline (GOPS) | MLX at measurement |
+|---|---|---|---:|---:|---:|---|
+| `m5-air` | Apple M5 | `applegpu_g17g` | 10 | 32 GB | 12,185 | 0.32.3 |
+| `m5-pro` | Apple M5 Pro | `applegpu_g17s` | 20 | 64 GB | 31,869 | 0.32.3 |
+| `m5-max` | Apple M5 Max | `applegpu_g17s` | 40 | 128 GB | 62,030 | 0.32.3 |
+| `m6` | Apple M6 | `applegpu_g18g` | 12 | 32 GB | 13,270 | 0.32.3 |
+
+Chip notes:
+
+- `m5-air`: Measured on the 10-core M5 Air SKU (M5 Air ships with fewer GPU cores in some configurations); other SKUs were not measured. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved.
+- `m5-pro`: Measured on the 20-core M5 Pro SKU (18-core CPU, 64 GB); the GPU architecture string applegpu_g17s is shared with the measured M5 Max, so the SKU tier is not distinguishable from the architecture string alone. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved. The e5m2 and strict/relaxed ablation lanes cite lane_sweep_v2_extras.json.
+- `m5-max`: Measured on the 40-core M5 Max SKU; other M5 Max configurations were not measured. Cells cite the schema-2 receipts with decoded-reference checks (lane_sweep_v2.json, integer_lanes_v2.json); the earlier v1 receipts are preserved.
+- `m6`: Measured on the 12-core M6 SKU, on a machine shared with other occasional users: cells cite the monitored schema-2 runs (lane_sweep_v2d.json, lane_sweep_v2_extras.json, integer_lanes_v2d.json; process samples taken during the windows, all ours). Ablations in extras: strict == relaxed for f16/e4m3/e5m2 and scaled e4m3 is identical relaxed vs strict, so the e4m3 ~2x and the half-rate scale-plane path are precision-mode-independent; unscaled e5m2 runs ~1.44x f16, scaled ~1.0x. Float lanes agree within ~1% across runs; integer lanes varied up to ~9% (i8*i8 28.1-30.6k). Earlier receipts are preserved; the transposed fp8 lanes read 8-13% higher in the pre-v2 receipt, unresolved.
+
+f16 denominator per chip (from the receipt the chip's cells cite, so the ratio cancels chip/clock differences): `m5-air` 12,185 GOPS from `receipts/m5-air/integer_lanes_v2.json`; `m5-pro` 31,869 GOPS from `receipts/m5-pro/integer_lanes_v2.json`; `m5-max` 62,030 GOPS from `receipts/m5-max/integer_lanes_v2.json`; `m6` 13,270 GOPS from `receipts/m6/integer_lanes_v2d.json`.
 
 Absolute rates are whole-GPU for the measured SKU; divide by the core count for an approximate per-core figure. The `vs f16` ratios are same-chip and cancel the core count.
 
@@ -95,6 +104,41 @@ Absolute rates are whole-GPU for the measured SKU; divide by the core count for 
 | m5-pro | no | no | yes |
 | m5-max | no | no | yes |
 | m6 | no | yes | yes |
+
+## Receipts
+
+Every receipt in `receipts/` is schema-checked in CI. `complete` is the receipt's own completion evidence (`flag`) or coverage-proven for receipts written before the flag existed (`coverage`); legacy/imported evidence receipts cannot back cells.
+
+| Receipt | Probe | Complete | Cited cells | Max sample spread |
+|---|---|---|---:|---:|
+| `receipts/m5-air/geometry_sweep.json` | `apple-matrix-capabilities/geometry_sweep` | coverage | 0 | — |
+| `receipts/m5-air/integer_lanes.json` | `legacy (pre-schema)` | legacy | 0 | — |
+| `receipts/m5-air/integer_lanes_v2.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 6 | 1.62× |
+| `receipts/m5-air/lane_sweep_mixed.json` | `p23_mixed_fp8_lanes` | legacy | 0 | — |
+| `receipts/m5-air/lane_sweep_v2.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 12 | 1.44× |
+| `receipts/m5-air/lane_sweep_v4.json` | `p19b_mx_sweep` | legacy | 0 | — |
+| `receipts/m5-max/geometry_sweep.json` | `apple-matrix-capabilities/geometry_sweep` | coverage | 0 | — |
+| `receipts/m5-max/integer_lanes.json` | `legacy (pre-schema)` | legacy | 0 | — |
+| `receipts/m5-max/integer_lanes_v2.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 6 | 1.49× |
+| `receipts/m5-max/lane_sweep_v2.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 12 | 3.09× ⚠ |
+| `receipts/m5-max/lane_sweep_v4.json` | `p19b_mx_sweep` | legacy | 0 | — |
+| `receipts/m5-pro/geometry_sweep.json` | `apple-matrix-capabilities/geometry_sweep` | coverage | 0 | — |
+| `receipts/m5-pro/integer_lanes.json` | `legacy (pre-schema)` | legacy | 0 | — |
+| `receipts/m5-pro/integer_lanes_v2.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 6 | 1.21× |
+| `receipts/m5-pro/lane_sweep.json` | `apple-matrix-capabilities/lane_sweep` | legacy | 0 | — |
+| `receipts/m5-pro/lane_sweep_v2.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 12 | 2.85× ⚠ |
+| `receipts/m5-pro/lane_sweep_v2_extras.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 8 | 2.23× ⚠ |
+| `receipts/m6/geometry_sweep.json` | `apple-matrix-capabilities/geometry_sweep` | coverage | 0 | — |
+| `receipts/m6/integer_lanes.json` | `legacy (pre-schema)` | legacy | 0 | — |
+| `receipts/m6/integer_lanes_v2.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 0 | — |
+| `receipts/m6/integer_lanes_v2b.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 0 | — |
+| `receipts/m6/integer_lanes_v2d.json` | `apple-matrix-capabilities/integer_lanes` | coverage | 6 | 1.65× |
+| `receipts/m6/lane_sweep_mixed.json` | `p23_mixed_fp8_lanes` | legacy | 0 | — |
+| `receipts/m6/lane_sweep_v2.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 0 | — |
+| `receipts/m6/lane_sweep_v2_extras.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 8 | 1.98× |
+| `receipts/m6/lane_sweep_v2b.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 0 | — |
+| `receipts/m6/lane_sweep_v2d.json` | `apple-matrix-capabilities/lane_sweep` | coverage | 12 | 1.49× |
+| `receipts/m6/lane_sweep_v4.json` | `p19b_mx_sweep` | legacy | 0 | — |
 
 ## Unknown chips
 
