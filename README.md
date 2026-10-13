@@ -20,22 +20,27 @@ measurements in one place, one receipt per cell.
 |---|---|
 | `matrix/capabilities.json` | The map: per chip, measured lanes (rate and vs-fp16), features, and the receipt behind each cell |
 | `matrix/MATRIX.md`, `matrix/capabilities.csv` | Generated views (do not edit by hand; run `tools/build_matrix.py`) |
-| `probes/lane_sweep.py`, `probes/integer_lanes.py`, `probes/geometry_sweep.py` | The probes that produce receipts: operand-format sweeps through `mpp::tensor_ops::matmul2d` (lane/format table, integer lanes, and the optional geometry dimension) |
+| `probes/lane_sweep.py`, `probes/integer_lanes.py`, `probes/geometry_sweep.py` | The probes that produce receipts: operand-format sweeps through `mpp::tensor_ops::matmul2d` (lane/format table, integer lanes, and the optional geometry dimension); shared helpers in `probes/_common.py` |
 | `tools/build_matrix.py` | Validator and view generator; `--check` runs in CI |
-| `tests/` | Validator regression tests (`python -m unittest discover -s tests`) |
-| `receipts/<chip>/` | The receipts behind every observed cell |
+| `tests/` | Validator and CPU-only probe regression tests (`python -m unittest discover -s tests`) |
+| `receipts/<chip>/` | The receipts behind every observed cell; accepted formats in `receipts/schema.json` |
 | `METHODS.md` | Protocol, traps, and what the numbers do and do not mean |
 | `CONTRIBUTING.md` | How to add your machine's rows |
 
 ## How to read it
 
-- **Evidence tags**: `observed` (a receipt in `receipts/`), `reported` (a third party's
-  measurement, linked), `inferred` (reasoned from source or headers, no local run),
-  `unknown` (no claim).
+- **Evidence tags**: the map currently publishes `observed` rows only — every cell cites a
+  schema-2 receipt in `receipts/` and the validator enforces that. `reported` (a third
+  party's measurement, linked) and `inferred` (reasoned from source or headers) are reserved
+  for future rows and are unused; unmeasured chips appear in `unknown_chips`.
 - **Rates**: GOPS at a fixed shape (2048×4096×4096, `mode::multiply`), the best result the
    receipt records — the standard sweep tries five tile configurations, and each receipt lists
    the tiles its lanes actually ran. `vs_f16` divides by the same receipt's `f16*f16->f32`, so
    each chip is compared only with itself.
+- **Spread flags**: a `⚠` on a cell (and a `spread>2x` marker in the CSV) means the cited
+  receipt's samples for that lane vary by more than 2× (max/min). Treat those cells as
+  unstable: rerun before building a dispatch rule on them. The receipt index in
+  `matrix/MATRIX.md` lists every receipt, its completion evidence and its worst spread.
 - **These are lane probes, not model numbers.** A 2× lane does not mean a 2× model.
 
 ## Coverage today

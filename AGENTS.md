@@ -11,5 +11,8 @@ Read README.md, METHODS.md, CONTRIBUTING.md and matrix/README.md first.
   processes or change system settings without the owner's agreement.
 - Publish only approved hardware metadata and sanitized diagnostics.
   Exclude credentials, personal identifiers, private paths and raw logs.
-- Run python tools/build_matrix.py --check and compile-check both probes.
-  Changes to probe behavior require correctness checks on suitable hardware.
+- Run python tools/build_matrix.py --check, the regression tests
+  (`python -m unittest discover -s tests`), and compile-check all probes:
+  `python -m py_compile probes/_common.py probes/lane_sweep.py probes/integer_lanes.py
+  probes/geometry_sweep.py`. Changes to probe behavior require correctness checks on
+  suitable hardware.

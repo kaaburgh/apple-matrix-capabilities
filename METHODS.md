@@ -18,25 +18,32 @@ device memory:
 - correctness first (receipt schema 2): deterministic nonuniform, sign-varying operands that
   are exactly representable in every lane format (and under any mantissa truncation) are
   encoded, then decoded back in NumPy for the reference; every timed tile is validated at the
-  timing shape before it is timed, packed formats try both nibble orders (the match is
-  recorded), and a lane that fails a check is reported `wrong` and never timed;
+  timing shape before it is timed, packed formats are probed lo-first with the other nibble
+  order tried only if the first fails (the matching order and the attempts are recorded), and a
+  lane that fails a check is reported `wrong` and never timed;
 - `matmul2d_descriptor::mode::multiply` — never `multiply_accumulate`;
 - timing procedure differs by probe and each receipt records it: the float sweep takes five
   single-call samples with the kernel-call construction inside the timer; the integer sweep
   takes seven samples of one batched timer over four kernel calls constructed before it;
   warm-ups precede both; best-of-samples and median are kept per tile;
-- receipts (schema 2) record probe name and SHA-256, Python/NumPy/MLX versions, OS build,
-  Xcode/Metal toolchain, power source and low-power mode, the device fields the map uses,
-  protocol (shapes, tiles, warm-ups, reps, seed), and per lane: status, `relaxed_precision`,
-  packing order, structured check results, per-tile samples and structured sanitized errors.
-  Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their checks used
-  constant encodings.
+- receipts (schema 2) record probe name and SHA-256, the hashes of every source file the
+  probe depends on (`sources`, including `probes/_common.py`), Python/NumPy/MLX versions, OS
+  build, Xcode/Metal toolchain including the Xcode build line, power source and low-power mode,
+  the device fields the map uses, protocol (shapes, tiles, warm-ups, reps, seed), and per lane:
+  status, `relaxed_precision`, packing order, structured check results, per-tile samples and
+  structured sanitized errors. Receipts are written atomically and end with `complete: true`;
+  a receipt without the field is accepted only when its coverage (lanes recorded vs requested,
+  counts) proves it finished, and one with `complete: false` is an interrupted checkpoint that
+  cannot back a cell. Schema 1 receipts (no `receipt_schema` field) are preserved as-is; their
+  checks used constant encodings, and they are background evidence that no cell may cite.
+  `receipts/schema.json` defines the accepted formats, and CI validates **every** receipt under
+  `receipts/`, cited or not.
 
 `geometry_sweep.py` is the opt-in companion for the geometry dimension: the same lanes,
 checks and timing procedure, run across a fixed list of real prefill shapes (wide-N, deep-K,
 low-rank, narrow families; M 512/2048/8192; the list lives in the script) instead of the
 single standard shape. It writes `geometry_sweep.json` with per-shape, per-tile rates and
-checks. The standard-shape columns stay the default everywhere; geometry receipts are
+checks, per-lane precision and nibble-order metadata, and the same protocol block. The standard-shape columns stay the default everywhere; geometry receipts are
 additional evidence, one per chip. The SHA-256 identifies the probe revision that produced the receipt and
   stops matching once the probe changes; that is expected, and receipts keep citing their own
   revision.
@@ -85,8 +92,11 @@ publish if anything else was active — a receipt cannot prove the machine was a
   acceleration) rather than failing. Record which it is; all of these are results.
 - `integer_lanes.py` is the companion sweep for integer and control lanes (it also re-measures
   `f16*f16` as its own baseline). Its receipt is `integer_lanes.json`; the same rules apply.
-- **`MLX_ENABLE_TF32` does not touch these lanes** (they are fp16/bf16/8-bit operand probes,
-  not float32 matmuls). State the setting you ran with.
+- **`MLX_ENABLE_TF32` and the f32 lanes.** Most lanes are fp16/bf16/8-bit operand probes that
+  the flag does not touch, but the `f32*f32->f32` and `strict_f32*f32->f32` lanes do run
+  float32 operand matmuls through the tensor op; their precision is governed by the tensor
+  op's `relaxed_precision` (recorded per lane), and the receipts record the environment's
+  `MLX_ENABLE_TF32` value (`unset` in the seed runs). State the setting you ran with.
 - **`->f32` names the declared destination type, not established accumulation precision.** The
   float-input intrinsic family accumulates in 32-bit float, but the ground-truth checks here
   use constant encodings, and `relaxed_precision` allows operand mantissas to be truncated
@@ -101,5 +111,9 @@ publish if anything else was active — a receipt cannot prove the machine was a
 
 A row says: this GPU, this toolchain, this shape, this tile policy — measured at this rate.
 It does not say how a model will run, what a kernel's overhead will cost, or what the units
-physically are. Where a row is `inferred` or `reported`, the JSON says so and links the
-source.
+physically are.
+
+The matrix currently represents **observed** rows only: every published cell cites a schema-2
+receipt, and the validator rejects a chip carrying measured lanes under any other evidence tag.
+`reported` and `inferred` are reserved for future rows with an external source link and are
+unused today; chips without receipts are listed in `capabilities.json`'s `unknown_chips`.
