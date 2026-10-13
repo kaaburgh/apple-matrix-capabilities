@@ -373,14 +373,138 @@ class TestProbeMainToValidator(unittest.TestCase):
         self.assertEqual(len(rec["rows"]), 1)
         self.assertEqual(rec["rows"][0]["M"], 2048)
 
+    def _run_float(self, name, check, time=None):
+        lane_sweep.check_tile = check
+        lane_sweep.time_tile = time or (lambda ctx, tile, reps, warmups:
+                                        [1.3 + 0.01 * i for i in range(reps)])
+        path = os.path.join(self.tmp.name, name)
+        rc = run_main(self, lane_sweep, ["--json", path,
+                                         "--lanes", "fp4*fp4->f32"])
+        rec = validate_probe_receipt(self, path)
+        return rc, rec
+
+    def _float_fake(self, ok_orders, explode=None, calls=None):
+        def check(lane, tile, shape, rng, order, stage=None):
+            if calls is not None:
+                calls.append(order)
+            if explode == order:
+                raise RuntimeError("compiler exploded")
+            ok = shape != lane_sweep.CHK or order in ok_orders
+            entry = {"stage": stage or (("check" if shape == lane_sweep.CHK
+                                         else "rate") + "_shape"),
+                     "tile": f"{tile[0]}x{tile[1]}x{tile[2]}", "rel_err": 0.0,
+                     "tolerance": 1e-5, "ok": ok}
+            return ok, entry, {"kern": None, "inputs": None,
+                               "m": shape[0], "n": shape[2]}
+        return check
+
+    def test_float_packed_lo_success(self):
+        rc, rec = self._run_float("lo.json", self._float_fake({"lo"}))
+        self.assertEqual(rc, 0)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual(lane["packing"], "lo")
+        self.assertEqual(lane["packing_attempts"], ["lo"])
+        self.assertFalse(lane["checks"][0]["exploratory"])
+
+    def test_float_packed_hi_fallback_validates(self):
+        # Regression for the third review: the rejected lo candidate must not
+        # invalidate a successful hi lane.
+        rc, rec = self._run_float("hi.json", self._float_fake({"hi"}))
+        self.assertEqual(rc, 0)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual((lane["packing"], lane["packing_attempts"]),
+                         ("hi", ["lo", "hi"]))
+        lo, hi = lane["checks"][0], lane["checks"][1]
+        self.assertTrue(lo["exploratory"] and not lo["ok"] and lo["order"] == "lo")
+        self.assertFalse(hi["exploratory"])
+        self.assertTrue(hi["ok"] and hi["order"] == "hi")
+
+    def test_float_packed_both_fail_records_attempts(self):
+        rc, rec = self._run_float("fail.json", self._float_fake(set()))
+        self.assertEqual(rc, 1)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual(lane["status"], "wrong")
+        self.assertEqual(lane["packing_attempts"], ["lo", "hi"])
+        self.assertIsNone(lane["packing"])
+
+    def test_float_exception_on_first_attempt_keeps_evidence(self):
+        rc, rec = self._run_float("raise_lo.json",
+                                  self._float_fake(set(), explode="lo"))
+        self.assertEqual(rc, 1)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual(lane["status"], "failed")
+        self.assertEqual(lane["packing_attempts"], ["lo"])
+        self.assertEqual(lane["checks"][0]["order"], "lo")
+        self.assertEqual(lane["checks"][0]["error_category"], "runtime")
+
+    def test_float_exception_on_second_attempt_keeps_evidence(self):
+        rc, rec = self._run_float("raise_hi.json",
+                                  self._float_fake(set(), explode="hi"))
+        self.assertEqual(rc, 1)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual(lane["packing_attempts"], ["lo", "hi"])
+        self.assertEqual([c["order"] for c in lane["checks"]], ["lo", "hi"])
+        self.assertTrue(lane["checks"][0]["exploratory"])
+
+    def test_float_non_finite_sample_records_terminal_timing_failure(self):
+        rc, rec = self._run_float(
+            "nan.json", self._float_fake({"lo"}),
+            time=lambda ctx, tile, reps, warmups: [1.3, float("nan"), 1.3, 1.3, 1.3])
+        self.assertEqual(rc, 1)
+        lane = rec["fp4*fp4->f32"]
+        self.assertEqual(lane["status"], "failed")
+        self.assertTrue(lane["tile_errors"])
+        self.assertTrue(rec["complete"])
+
+    def test_geometry_shape_equal_to_check_shape_validates(self):
+        # Finding 4: 64x1024x256 is CHK; geometry must still label its checks
+        # rate_shape so a measured custom shape can validate.
+        def check(lane, tile, shape, rng, order, stage=None):
+            entry = {"stage": stage or (("check" if shape == lane_sweep.CHK
+                                         else "rate") + "_shape"),
+                     "tile": f"{tile[0]}x{tile[1]}x{tile[2]}", "rel_err": 0.0,
+                     "tolerance": 1e-5, "ok": True}
+            return True, entry, {"kern": None, "inputs": None,
+                                 "m": shape[0], "n": shape[2]}
+        lane_sweep.check_tile = check
+        lane_sweep.time_tile = lambda ctx, tile, reps, warmups: \
+            [1.3 + 0.01 * i for i in range(reps)]
+        path = os.path.join(self.tmp.name, "geometry_chk.json")
+        rc = run_main(self, geometry_sweep, [
+            "--json", path, "--lanes", "f16*f16->f32",
+            "--shapes", "64x1024x256"])
+        self.assertEqual(rc, 0)
+        rec = validate_probe_receipt(self, path)
+        stages = {c["stage"] for c in rec["lanes"]["f16*f16->f32"]["shape_0"]["checks"]}
+        self.assertEqual(stages, {"rate_shape"})
+
+    def test_geometry_non_finite_sample_records_terminal_failure(self):
+        def check(lane, tile, shape, rng, order, stage=None):
+            entry = {"stage": stage or "rate_shape",
+                     "tile": f"{tile[0]}x{tile[1]}x{tile[2]}", "rel_err": 0.0,
+                     "tolerance": 1e-5, "ok": True}
+            return True, entry, {"kern": None, "inputs": None,
+                                 "m": shape[0], "n": shape[2]}
+        lane_sweep.check_tile = check
+        lane_sweep.time_tile = lambda ctx, tile, reps, warmups: \
+            [1.3, float("inf"), 1.3, 1.3, 1.3]
+        path = os.path.join(self.tmp.name, "geometry_nan.json")
+        rc = run_main(self, geometry_sweep, [
+            "--json", path, "--lanes", "f16*f16->f32",
+            "--shapes", "2048x4096x4096"])
+        self.assertEqual(rc, 1)
+        rec = validate_probe_receipt(self, path)
+        self.assertEqual(rec["lanes"]["f16*f16->f32"]["shape_0"]["status"], "failed")
+        self.assertTrue(rec["complete"])
+
     def test_geometry_packed_lane_hi_fallback_validates(self):
         calls = []
 
-        def check(lane, tile, shape, rng, order):
+        def check(lane, tile, shape, rng, order, stage=None):
             calls.append(order)
             ok = order == "hi"
-            entry = {"stage": ("check" if shape == lane_sweep.CHK else "rate")
-                     + "_shape", "tile": f"{tile[0]}x{tile[1]}x{tile[2]}",
+            entry = {"stage": stage or (("check" if shape == lane_sweep.CHK else "rate")
+                     + "_shape"), "tile": f"{tile[0]}x{tile[1]}x{tile[2]}",
                      "rel_err": 0.0, "tolerance": 1e-5, "ok": ok}
             return ok, entry, {"kern": None, "inputs": None,
                                "m": shape[0], "n": shape[2]}
@@ -400,7 +524,7 @@ class TestProbeMainToValidator(unittest.TestCase):
         self.assertIn("lo", calls)
 
     def test_geometry_packing_failure_attempts_are_not_reconstructed(self):
-        def check(lane, tile, shape, rng, order):
+        def check(lane, tile, shape, rng, order, stage=None):
             raise ValueError("device unavailable")
         lane_sweep.check_tile = check
         path = os.path.join(self.tmp.name, "geometry.json")

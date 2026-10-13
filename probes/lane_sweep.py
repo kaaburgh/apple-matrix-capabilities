@@ -266,8 +266,14 @@ def rel_err(y, ref):
     return float(np.abs(y - ref).max() / max(float(np.abs(ref).max()), 1.0))
 
 
-def check_tile(lane, tile, shape, rng, order):
-    """Build, run and validate one tile at one shape. Returns (ok, entry, ctx)."""
+def check_tile(lane, tile, shape, rng, order, stage=None):
+    """Build, run and validate one tile at one shape. Returns (ok, entry, ctx).
+
+    `stage` names the check's purpose at the call site; the default keeps the
+    original heuristic (the wiring shape versus a measured shape). Geometry
+    passes `rate_shape` explicitly because a custom measured shape can equal
+    `CHK`.
+    """
     m, k, n = shape
     act, _, wt, _, _, scaled, _ = LANES[lane]
     a_val, a_bits = pattern(rng, (m, k), lane_kind(act))
@@ -279,7 +285,7 @@ def check_tile(lane, tile, shape, rng, order):
     y = np.array(call(kern, inputs, m, n, tile))
     ref = reference(av, bv, s_val, k)
     err = rel_err(y, ref)
-    entry = {"stage": f"{'check' if shape == CHK else 'rate'}_shape",
+    entry = {"stage": stage or ("check_shape" if shape == CHK else "rate_shape"),
              "tile": f"{tile[0]}x{tile[1]}x{tile[2]}", "rel_err": err,
              "tolerance": TOL, "ok": bool(err < TOL)}
     ctx = {"kern": kern, "inputs": inputs, "m": m, "n": n}
@@ -311,19 +317,27 @@ def run_lane(lane, out, rng, reps, warmups):
     out[lane] = entry
     try:
         packed = lane_kind(LANES[lane][0]) == "fp4" or lane_kind(LANES[lane][2]) == "fp4"
-        attempts, checks = ["lo"], []
-        ok0, chk0 = check_tile(lane, TILES[0], CHK, rng, "lo")[:2]
-        checks.append(C.finite_check(chk0))
-        order = "lo" if ok0 else None
-        if not ok0 and packed:
-            attempts.append("hi")
-            ok1, chk1 = check_tile(lane, TILES[0], CHK, rng, "hi")[:2]
-            checks.append(C.finite_check(chk1))
-            if ok1:
-                ok0, order = True, "hi"
-        entry["packing_attempts"] = attempts if packed else []
+        attempts, checks = [], []
+        entry["packing_attempts"] = attempts  # assigned before any GPU call:
+        entry["checks"] = checks              # partial evidence survives failures
+        order, ok0 = None, False
+        for cand in (["lo", "hi"] if packed else ["lo"]):
+            attempts.append(cand)
+            try:
+                ok, chk = check_tile(lane, TILES[0], CHK, rng, cand)[:2]
+            except Exception as exc:
+                checks.append({"stage": "check_shape", "order": cand, "ok": False,
+                               "rel_err": None, "tolerance": None,
+                               "error_category": C.classify(exc)})
+                raise
+            chk = C.finite_check(chk)
+            chk["order"] = cand
+            chk["exploratory"] = bool(packed and not ok)  # rejected candidate
+            checks.append(chk)
+            if ok:
+                order, ok0 = cand, True
+                break
         entry["packing"] = order
-        entry["checks"] = checks
         if not ok0:
             entry["status"] = "wrong"
             return
@@ -337,8 +351,8 @@ def run_lane(lane, out, rng, reps, warmups):
                     entry["status"] = "wrong"
                     return
                 ts = time_tile(ctx, tile, reps, warmups)
-                if min(ts) <= 0 or not math.isfinite(min(ts)):
-                    raise ValueError(f"non-finite or non-positive timing sample {min(ts)!r}")
+                if not all(math.isfinite(t) and t > 0 for t in ts):
+                    raise ValueError(f"non-finite or non-positive timing sample(s) {ts!r}")
                 rates[tname] = round(2.0 * RATE[0] * RATE[1] * RATE[2] / min(ts) / 1e6, 1)
                 samples[tname] = [round(t, 3) for t in ts]
             except Exception as exc:

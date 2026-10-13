@@ -162,7 +162,7 @@ def geometry_receipt(device_name="Apple M9", architecture="applegpu_g99",
         "device": {"device_name": device_name, "architecture": architecture,
                    "memory_size": memory_size},
         "protocol": {"shapes": shapes, "lanes_requested": ["f16*f16->f32"],
-                     "tiles": list(TILES), "check_shape": [64, 1024, 256],
+                     "tiles": [TILES[0]], "check_shape": [64, 1024, 256],
                      "rate_shape": list(SHAPE), "warmups": 2, "reps": 5,
                      "seed": 1, "mode": "multiply", "sample": "timer"},
         "lane_meta": {"f16*f16->f32": {"relaxed_precision": False,
@@ -358,6 +358,108 @@ class TestValidator(Fixture):
         cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
                                                 receipt="receipts/m9/integer_lanes.json")})
         self.assert_error(bm.validate(cap, self.root), "ms_best")
+
+    def test_removed_float_tile_outcome_rejected(self):
+        rec = sweep_receipt()
+        lane = rec["e4m3*e4m3->f32"]
+        lane["rates"].pop(TILES[1])
+        lane["samples"].pop(TILES[1])
+        lane["checks"] = [c for c in lane["checks"] if c.get("tile") != TILES[1]]
+        lane["gops_best"] = max(lane["rates"].values())
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell(rate=lane["gops_best"],
+                                                    ratio=round(lane["gops_best"] / rec["f16*f16->f32"]["gops_best"], 3))})
+        self.assert_error(bm.validate(cap, self.root), "no measurement or failure outcome")
+
+    def test_duplicate_integer_terminal_row_rejected(self):
+        rec = integer_receipt()
+        rec["rows"].append(dict(rec["rows"][0]))
+        rec["results"]["rows_total"] += 1
+        rec["results"]["rows_ok"] += 1
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "duplicate terminal")
+
+    def test_empty_integer_protocol_tiles_rejected(self):
+        rec = integer_receipt()
+        rec["protocol"]["tiles"] = []
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "nonempty parseable")
+
+    def test_geometry_empty_shapes_map_rejected(self):
+        rec = geometry_receipt()
+        rec["protocol"]["shapes"] = {}
+        rec["lanes"]["f16*f16->f32"]["shape_a"]["gops_best"] = 1e10
+        self.write_receipt(rec, "geometry_sweep.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        errors = bm.validate(cap, self.root)
+        self.assert_error(errors, "nonempty protocol.shapes")
+        self.assert_error(errors, "no valid dimensions")
+
+    def test_geometry_label_with_dims_removed_rejected(self):
+        rec = geometry_receipt()
+        del rec["protocol"]["shapes"]["shape_a"]
+        self.write_receipt(rec, "geometry_sweep.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "no valid dimensions")
+
+    def test_integer_check_stage_dims_mismatch_rejected(self):
+        rec = integer_receipt()
+        row = next(r for r in rec["rows"] if r["lane"] == "i8*i8->i32")
+        for c in row["checks"]:
+            if c["stage"].startswith("rate_shape"):
+                c["stage"] = "rate_shape_1x1x1"
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "!= row")
+
+    def test_integer_reps_conflict_rejected(self):
+        rec = integer_receipt()
+        rec["protocol"]["reps"] = 99
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        self.assert_error(bm.validate(cap, self.root), "protocol.reps 99 != receipt reps 7")
+
+    def test_integer_zero_ms_best_is_an_error_not_a_traceback(self):
+        rec = integer_receipt()
+        row = next(r for r in rec["rows"] if r["lane"] == "i8*i8->i32")
+        row["ms_best"] = 0
+        self.write_receipt(rec, "integer_lanes.json")
+        cap = self.cap({"i8*i8->i32": self.cell(rate=2000.0, ratio=2.0,
+                                                receipt="receipts/m9/integer_lanes.json")})
+        errors = bm.validate(cap, self.root)
+        self.assert_error(errors, "positive finite")
+
+    def test_incomplete_uncited_checkpoint_allowed_but_not_citable(self):
+        self.write_receipt(sweep_receipt(complete=False), "checkpoint.json")
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assertEqual(bm.validate(cap, self.root), [])
+        md, _ = bm.build(cap, self.root)
+        self.assertIn("incomplete (not citable)", md)
+        cap2 = self.cap({"e4m3*e4m3->f32": self.cell(
+            receipt="receipts/m9/checkpoint.json")})
+        self.assert_error(bm.validate(cap2, self.root), "incomplete checkpoint")
+
+    def test_packed_selected_order_needs_correctness_check(self):
+        rec = sweep_receipt(lanes_requested=["fp4*fp4->f32"])
+        del rec["f16*f16->f32"]
+        del rec["e4m3*e4m3->f32"]
+        lane = lane_from_samples({TILES[0]: samples_for(500.0)},
+                                 attempts=["lo", "hi"])
+        lane["packing"] = "hi"
+        for c in lane["checks"]:
+            c["order"] = "lo"
+            c["exploratory"] = True
+        rec["fp4*fp4->f32"] = lane
+        rec["results"] = {"ok": 1, "wrong": 0, "failed": 0, "lanes_total": 1}
+        self.write_receipt(rec)
+        cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
+        self.assert_error(bm.validate(cap, self.root), "no passing correctness check")
 
     def test_v3_packed_lane_without_attempts_rejected(self):
         rec = sweep_receipt(lanes_requested=["fp4*fp4->f32"])

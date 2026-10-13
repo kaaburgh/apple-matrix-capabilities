@@ -150,7 +150,10 @@
         "rel_err": {"type": ["number", "null"]},
         "tolerance": {"type": ["number", "string", "null"]},
         "ok": {"type": "boolean"},
-        "non_finite": {"type": "boolean"}
+        "non_finite": {"type": "boolean"},
+        "order": {"type": "string"},
+        "exploratory": {"type": "boolean"},
+        "error_category": {"type": "string"}
       }
     },
     "error": {

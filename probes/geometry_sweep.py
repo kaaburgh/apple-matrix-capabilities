@@ -117,14 +117,15 @@ def run_lane_shape(lane, label, shape, rng, out, order):
         for tile in tiles_for(m, k, n):
             tname = f"{tile[0]}x{tile[1]}x{tile[2]}"
             try:
-                ok, chk, ctx = ls.check_tile(lane, tile, shape, rng, order)
+                ok, chk, ctx = ls.check_tile(lane, tile, shape, rng, order,
+                                             stage="rate_shape")
                 entry["checks"].append(C.finite_check(chk))
                 if not ok:
                     entry["status"] = "wrong"
                     return
                 ts = ls.time_tile(ctx, tile, REPS, 2)
-                if min(ts) <= 0 or not _finite(min(ts)):
-                    raise ValueError(f"non-finite or non-positive timing sample {min(ts)!r}")
+                if not all(_finite(t) and t > 0 for t in ts):
+                    raise ValueError(f"non-finite or non-positive timing sample(s) {ts!r}")
                 rates[tname] = round(2.0 * m * k * n / min(ts) / 1e6, 1)
                 samples[tname] = [round(t, 3) for t in ts]
             except Exception as exc:
@@ -184,7 +185,8 @@ def main():
 
     out = ls.machine_meta()
     out["probe"] = "apple-matrix-capabilities/geometry_sweep"
-    out["probe_sha256"] = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
+    with open(__file__, "rb") as f:
+        out["probe_sha256"] = hashlib.sha256(f.read()).hexdigest()
     out["sources"] = C.source_hashes(C.probe_files(__file__, ls.__file__))
     out["protocol"] = {
         "shapes": {label: list(s) for label, s in shapes},

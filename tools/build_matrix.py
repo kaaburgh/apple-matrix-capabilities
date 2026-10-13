@@ -16,11 +16,11 @@ The JSON is the single source of truth. This tool:
         matrix/MATRIX.md             grouped tables for reading on GitHub
         matrix/capabilities.csv      flat grid (GitHub renders CSV as a table)
 
-Completion evidence: a schema-2 receipt written by the current probes carries
-`complete: true` after the final write. Receipts written before the flag existed
-are accepted when their coverage cross-checks (requested lanes/shapes/tiles vs
-the recorded entries) prove the run finished; a checkpoint (`complete: false`)
-or a partial coverage cannot back a matrix cell.
+Completion evidence: schema-3 receipts record the requested work and its
+terminal outcomes, so completion is compared against the request; schema-2
+receipts predate those fields, so their coverage is inferred from the surviving
+entries and labelled `coverage (inferred, v2)`. A checkpoint (`complete: false`)
+is preserved as archive evidence but cannot back a matrix cell.
 
 Usage:
     python tools/build_matrix.py            # write the views
@@ -35,6 +35,7 @@ import io
 import json
 import math
 import os
+import re
 import statistics
 import sys
 
@@ -137,6 +138,11 @@ def check_errors(where, checks):
         if not isinstance(c, dict) or not isinstance(c.get("ok"), bool):
             errs.append(f"{where}: checks[{i}] must carry a boolean ok")
             continue
+        for field in ("order", "error_category"):
+            if c.get(field) is not None and not isinstance(c[field], str):
+                errs.append(f"{where}: checks[{i}].{field} must be a string")
+        if c.get("exploratory") is not None and not isinstance(c["exploratory"], bool):
+            errs.append(f"{where}: checks[{i}].exploratory must be a boolean")
         err, tol, ok = c.get("rel_err"), c.get("tolerance"), c["ok"]
         if c.get("non_finite"):
             if ok:
@@ -165,7 +171,7 @@ def check_errors(where, checks):
     return errs
 
 
-def float_binding_errors(where, entry, dims, reps):
+def float_binding_errors(where, entry, dims, reps, expected_tiles=None):
     """Bind a successful float sweep lane/cell to its own recorded evidence.
 
     `gops_best` must be the exact max of `rates`; every rate tile needs a
@@ -193,6 +199,16 @@ def float_binding_errors(where, entry, dims, reps):
         if tname not in ok_tiles:
             errs.append(f"{where}: rate tile {tname!r} has no passing rate_shape "
                         f"check")
+    if expected_tiles is not None:
+        recorded = set(rates) | set(entry.get("tile_errors") or {})
+        missing = set(expected_tiles) - recorded
+        extra = recorded - set(expected_tiles)
+        if missing:
+            errs.append(f"{where}: requested tile(s) {sorted(missing)} have no "
+                        f"measurement or failure outcome")
+        if extra:
+            errs.append(f"{where}: recorded tile(s) {sorted(extra)} are outside "
+                        f"protocol.tiles")
     if not isinstance(samples, dict) or not samples:
         errs.append(f"{where}: status 'ok' without timing samples")
         return errs
@@ -235,6 +251,8 @@ def int_row_binding_errors(where, row):
         return []
     errs = []
     m, k, n = row.get("M"), row.get("K"), row.get("N")
+    dims_ok = all(isinstance(v, int) and not isinstance(v, bool) and v > 0
+                  for v in (m, k, n))
     ts = row.get("ms_samples")
     mb, mm = row.get("ms_best"), row.get("ms_med")
     gb, gm = row.get("gops_best"), row.get("gops_med")
@@ -243,21 +261,33 @@ def int_row_binding_errors(where, row):
     if not all(finite_pos(v) for v in ts):
         errs.append(f"{where}: ms_samples must be finite and positive")
         return errs
-    if not finite_num(mb) or abs(mb - min(ts)) > 0.005:
+    if finite_num(mb) and abs(mb - min(ts)) > 0.005:
         errs.append(f"{where}: ms_best {mb} != min(ms_samples) {min(ts)}")
-    if not finite_num(mm) or abs(mm - statistics.median(ts)) > 0.005:
+    if finite_num(mm) and abs(mm - statistics.median(ts)) > 0.005:
         errs.append(f"{where}: ms_med {mm} != median(ms_samples)")
     for what, ms, g in (("ms_best", mb, gb), ("ms_med", mm, gm)):
-        if not finite_num(ms):
+        if not finite_pos(ms):
+            errs.append(f"{where}: {what} must be a positive finite number")
             continue
+        if not dims_ok:
+            continue  # M/K/N problems are reported by the structural checks
         expected = 2.0 * m * k * n / (ms * 1e6)
         if not finite_num(g) or abs(g - expected) > max(1e-3, expected * 1e-9):
             errs.append(f"{where}: gops derived from {what} {g} != "
                         f"{expected:.6g}")
-    if not any(isinstance(c, dict) and c.get("ok")
-               and str(c.get("stage", "")).startswith("rate_shape")
-               for c in row.get("checks", [])):
+    rate_checks = [c for c in row.get("checks", [])
+                   if isinstance(c, dict) and c.get("ok")
+                   and str(c.get("stage", "")).startswith("rate_shape")]
+    if not rate_checks:
         errs.append(f"{where}: successful row without a passing rate_shape check")
+    elif dims_ok:
+        for c in rate_checks:
+            match = re.match(r"rate_shape_(\d+)x(\d+)x(\d+)$", c["stage"])
+            if not match:
+                errs.append(f"{where}: malformed rate_shape stage {c['stage']!r}")
+            elif tuple(int(x) for x in match.groups()) != (m, k, n):
+                errs.append(f"{where}: check stage {c['stage']!r} != row "
+                            f"{m}x{k}x{n}")
     return errs
 
 
@@ -272,7 +302,8 @@ def _status_errors(where, entry, require_checks=False):
     if status == "ok":
         if require_checks and not checks:
             errs.append(f"{where}: status 'ok' without any recorded check")
-        if not all(c.get("ok") for c in checks if isinstance(c, dict)):
+        if not all(c.get("ok") for c in checks
+                   if isinstance(c, dict) and not c.get("exploratory")):
             errs.append(f"{where}: status 'ok' but a recorded check failed")
         if not finite_pos(entry.get("gops_best")):
             errs.append(f"{where}: status 'ok' without a finite positive gops_best")
@@ -351,13 +382,24 @@ def completion_errors(rec, version=None):
         if res.get("rows_total") != len(rows):
             errs.append("completion unproven: results.rows_total != len(rows)")
         proto = rec.get("protocol") or {}
+        raw_tiles = proto.get("tiles")
+        raw_shapes = proto.get("shapes")
         tiles = [tuple(int(x) for x in t0.split("x"))
-                 for t0 in proto.get("tiles", []) if isinstance(t0, str)]
+                 for t0 in raw_tiles if isinstance(t0, str)] \
+            if isinstance(raw_tiles, list) else []
         shapes = [tuple(int(x) for x in s0.split("x"))
-                  for s0 in proto.get("shapes", []) if isinstance(s0, str)]
-        seen = {(r.get("lane"), tuple(r.get("tile", [])),
-                 (r.get("M"), r.get("K"), r.get("N")))
-                for r in rows if isinstance(r, dict)}
+                  for s0 in raw_shapes if isinstance(s0, str)] \
+            if isinstance(raw_shapes, list) else []
+        if explicit and (not tiles or not shapes):
+            errs.append("completion unproven: schema 3 needs nonempty parseable "
+                        "protocol.tiles and protocol.shapes")
+        keys = [((r.get("lane"), tuple(r.get("tile", [])),
+                  (r.get("M"), r.get("K"), r.get("N"))))
+                for r in rows if isinstance(r, dict)]
+        seen = set(keys)
+        if len(keys) != len(seen):
+            errs.append("completion unproven: duplicate terminal (lane,tile,shape) "
+                        "rows")
         if explicit:
             req = proto.get("lanes_requested")
             if not isinstance(req, list) or not req:
@@ -396,6 +438,18 @@ def completion_errors(rec, version=None):
             errs.append("completion unproven: schema 3 needs "
                         "protocol.lanes_requested")
             req = proto.get("lanes") or list(lanes or {})
+        if explicit:
+            dims = proto.get("shapes")
+            if not isinstance(dims, dict) or not dims:
+                errs.append("completion unproven: schema 3 needs a nonempty "
+                            "protocol.shapes map")
+            else:
+                for label, d in dims.items():
+                    if (not isinstance(d, list) or len(d) != 3
+                            or any(not isinstance(v, int) or isinstance(v, bool)
+                                   or v <= 0 for v in d)):
+                        errs.append(f"completion unproven: protocol.shapes"
+                                    f"[{label!r}] is not three positive integers")
         if not isinstance(lanes, dict) or not req:
             if flagged:
                 return errs
@@ -413,6 +467,12 @@ def completion_errors(rec, version=None):
         req = proto.get("lanes_requested")
         present = sorted(k for k in rec if is_lane_key(k))
         res = rec.get("results") or {}
+        if explicit:
+            tiles = proto.get("tiles")
+            if (not isinstance(tiles, list) or not tiles
+                    or not all(isinstance(t, str) for t in tiles)):
+                errs.append("completion unproven: schema 3 needs a nonempty "
+                            "protocol.tiles list")
         if not req:
             if explicit or not flagged:
                 errs.append("completion unproven: no lanes_requested")
@@ -424,6 +484,15 @@ def completion_errors(rec, version=None):
         if res.get("lanes_total") is not None and counts != res.get("lanes_total"):
             errs.append("completion unproven: ok+wrong+failed != lanes_total")
     return errs
+
+
+def _tile_eligible(tname, dims):
+    try:
+        mt, nt, _ = (int(v) for v in tname.split("x"))
+    except ValueError:
+        return False
+    m, k, n = dims
+    return m % mt == 0 and n % nt == 0 and k % 32 == 0
 
 
 def receipt_semantic_errors(rel, rec):
@@ -445,8 +514,10 @@ def receipt_semantic_errors(rel, rec):
             errs += _status_errors(f"{rel}:{key}", entry, strict)
             if strict:
                 dims = tuple(proto.get("shape") or PROTOCOL_SHAPE)
+                tiles = [t for t in proto.get("tiles", []) if isinstance(t, str)]
                 errs += float_binding_errors(f"{rel}:{key}", entry, dims,
-                                             proto.get("reps"))
+                                             proto.get("reps"),
+                                             expected_tiles=tiles or None)
                 if "fp4" in key and version == 3:
                     att = entry.get("packing_attempts")
                     if not isinstance(att, list) or not att:
@@ -456,6 +527,16 @@ def receipt_semantic_errors(rel, rec):
                           and entry.get("packing") not in att):
                         errs.append(f"{rel}:{key}: matched packing "
                                     f"{entry.get('packing')!r} not in attempts {att}")
+                    if entry.get("status") == "ok":
+                        selected = entry.get("packing")
+                        proven = any(
+                            isinstance(c, dict) and c.get("ok")
+                            and not c.get("exploratory")
+                            and c.get("order") == selected
+                            for c in entry.get("checks", []))
+                        if not proven:
+                            errs.append(f"{rel}:{key}: no passing correctness "
+                                        f"check for selected packing {selected!r}")
     elif probe == "apple-matrix-capabilities/integer_lanes":
         proto = rec.get("protocol") or {}
         shapes = proto.get("shapes")
@@ -463,6 +544,10 @@ def receipt_semantic_errors(rel, rec):
         if not isinstance(shapes, list) or want not in shapes:
             errs.append(f"{rel}: protocol.shapes must include {want}")
         reps = rec.get("reps") if isinstance(rec.get("reps"), int) else None
+        proto_reps = proto.get("reps")
+        if (version == 3 and isinstance(proto_reps, int) and reps is not None
+                and proto_reps != reps):
+            errs.append(f"{rel}: protocol.reps {proto_reps} != receipt reps {reps}")
         for i, row in enumerate(rec.get("rows", [])):
             where = f"{rel}:rows[{i}]"
             errs += int_row_errors(where, row, strict)
@@ -496,14 +581,29 @@ def receipt_semantic_errors(rel, rec):
                 for label, cell in cells.items():
                     where = f"{rel}:{lane}:{label}"
                     errs += _status_errors(where, cell, strict)
-                    if strict and label in shapes:
-                        errs += float_binding_errors(
-                            where, cell, tuple(shapes[label]), proto.get("reps"))
+                    if not strict:
+                        continue
+                    dims = shapes.get(label)
+                    if (not isinstance(dims, list) or len(dims) != 3
+                            or any(not isinstance(v, int) or isinstance(v, bool)
+                                   or v <= 0 for v in dims)):
+                        errs.append(f"{where}: measured label {label!r} has no "
+                                    f"valid dimensions in protocol.shapes")
+                        continue
+                    tiles = [t for t in proto.get("tiles", []) if isinstance(t, str)]
+                    # Schema-2 geometry receipts predate protocol.tiles; tile
+                    # accounting applies where the request is recorded (v3).
+                    eligible = ([t for t in tiles if _tile_eligible(t, dims)]
+                                if tiles else None)
+                    errs += float_binding_errors(
+                        where, cell, tuple(dims), proto.get("reps"),
+                        expected_tiles=eligible)
         if proto.get("shapes") and not isinstance(proto["shapes"], dict):
             errs.append(f"{rel}: protocol.shapes must be an object")
-    if probe in ("apple-matrix-capabilities/lane_sweep",
-                 "apple-matrix-capabilities/integer_lanes",
-                 "apple-matrix-capabilities/geometry_sweep") and strict:
+    if (probe in ("apple-matrix-capabilities/lane_sweep",
+                  "apple-matrix-capabilities/integer_lanes",
+                  "apple-matrix-capabilities/geometry_sweep") and strict
+            and rec.get("complete") is not False):
         errs += [f"{rel}: {e}" for e in completion_errors(rec, version)]
     return errs
 
@@ -1056,6 +1156,8 @@ def build(cap, root=ROOT):
         version = receipt_version(rec)
         if rec.get("complete") is True:
             comp = "flag"
+        elif rec.get("complete") is False:
+            comp = "incomplete (not citable)"
         elif version is not None and not completion_errors(rec, version):
             comp = "coverage (v3)" if version == 3 else "coverage (inferred, v2)"
         else:
