@@ -8,10 +8,12 @@ protocol and its traps, README.md for how receipts feed the capability matrix.
 Correctness (receipt schema 2): every timed tile is validated at the timing
 shape against a decoded-operand NumPy reference built from deterministic,
 nonuniform, sign-varying values that are exactly representable in every lane
-format (and under any mantissa truncation). Packed lanes (fp4) are validated
-in both nibble orders; the matching order is recorded. A lane whose checks
-fail is never timed. Failures are recorded per lane/tile with structured,
-sanitized error objects, and the receipt is rewritten after every lane.
+format (and under any mantissa truncation). Packed lanes (fp4) are probed
+lo-first, with the other nibble order tried only if the first fails; the
+matching order and the attempts are recorded. A lane whose checks fail is
+never timed. Failures are recorded per lane/tile with structured, sanitized
+error objects; the receipt is written atomically after every lane and marked
+`complete` only at the end.
 
 Requirements: an Apple Silicon Mac, a Python with MLX (pip) and NumPy, and an
 Xcode/SDK whose MetalPerformancePrimitives headers provide the tensor ops.
@@ -49,18 +51,18 @@ records the flag per lane. mode::multiply only.
 
 import argparse
 import hashlib
-import json
 import os
 import platform
-import re
 import statistics
-import subprocess
 import sys
 import time
 
 import numpy as np
 
 import mlx.core as mx
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as C  # noqa: E402
 
 RECEIPT_SCHEMA = 2
 SEED = 20261012
@@ -145,6 +147,9 @@ LANES = {
     "f16*e5m2->f32": ("half", "half", "metal::metal_fp8_e5m2_format", "uchar", "float", False, False),
     "mx_e5m2*e5m2->f32": ("metal::metal_fp8_e5m2_format", "uchar", "metal::metal_fp8_e5m2_format", "uchar", "float", True, True),
 }
+# Stable per-lane seed index: independent of the requested lane subset/order.
+LANE_INDEX = {lane: i for i, lane in enumerate(LANES)}
+
 # relaxed_precision per lane: unscaled lanes default on, scaled lanes default
 # off; these are the explicit exceptions. `strict_` marks relaxed off, `relaxed_`
 # marks a scaled lane with relaxed on.
@@ -348,58 +353,35 @@ def run_lane(lane, out, rng, reps, warmups):
         entry["error"] = err_obj(exc, "build")
 
 
-def sanitize(text, limit=200):
-    t = str(text).splitlines()[0].strip() if text else ""
-    t = re.sub(r"(?:/Users|/private|/var/folders|/opt|/Volumes)/[^\s\"']*", "<path>", t)
-    return t[:limit]
-
-
-def err_obj(exc, phase):
-    return {"phase": phase, "type": type(exc).__name__, "message": sanitize(exc)}
-
-
-def sh(cmd):
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        first = r.stdout.strip().splitlines()
-        return first[0] if first else "unknown"
-    except Exception:
-        return "unknown"
+err_obj = C.err_obj
+write_receipt = C.write_receipt
 
 
 def machine_meta():
     dev = mx.device_info()
-    power = {"source": "unknown", "low_power_mode": "unknown"}
     try:
-        batt = sh(["pmset", "-g", "batt"])
-        power["source"] = ("ac" if "AC Power" in batt
-                           else "battery" if "Battery Power" in batt else "unknown")
-        m = re.search(r"lowpowermode\s+(\d)",
-                      subprocess.run(["pmset", "-g"], capture_output=True, text=True,
-                                     timeout=5).stdout)
-        if m:
-            power["low_power_mode"] = (m.group(1) == "1")
-    except Exception:
-        pass
-    try:
-        probe_hash = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
+        with open(__file__, "rb") as f:
+            probe_hash = hashlib.sha256(f.read()).hexdigest()
     except Exception:
         probe_hash = "unknown"
+    device = {k: dev.get(k) for k in ("device_name", "architecture", "memory_size",
+                                      "max_recommended_working_set_size")}
+    device["gpu_cores"] = C.gpu_cores()
     return {
         "probe": "apple-matrix-capabilities/lane_sweep",
         "receipt_schema": RECEIPT_SCHEMA,
         "probe_sha256": probe_hash,
+        "sources": C.source_hashes(C.probe_files(__file__)),
         "mlx": mx.__version__,
         "python": platform.python_version(),
         "numpy": np.__version__,
-        "os": {"version": platform.mac_ver()[0], "build": sh(["sw_vers", "-buildVersion"])},
-        "toolchain": {"xcode": sh(["xcodebuild", "-version"]),
-                      "sdk": sh(["xcrun", "--sdk", "macosx", "--show-sdk-version"]),
-                      "metal": sh(["xcrun", "metal", "--version"])},
-        "power": power,
-        "env": {"MLX_ENABLE_TF32": os.environ.get("MLX_ENABLE_TF32", "unset")},
-        "device": {k: dev.get(k) for k in ("device_name", "architecture", "memory_size",
-                                           "max_recommended_working_set_size")},
+        "os": {"version": platform.mac_ver()[0],
+               "build": C.first_line(C.run_text(["sw_vers", "-buildVersion"]))},
+        "toolchain": C.toolchain_meta(),
+        "power": C.power_meta(),
+        "env": {"MLX_ENABLE_TF32": os.environ.get("MLX_ENABLE_TF32", "unset"),
+                "MLX_METAL_JIT": os.environ.get("MLX_METAL_JIT", "unset")},
+        "device": device,
     }
 
 
@@ -416,11 +398,6 @@ def summarize(out):
     st = [out[k]["status"] for k in LANES if isinstance(out.get(k), dict)]
     out["results"] = {"ok": st.count("ok"), "wrong": st.count("wrong"),
                       "failed": st.count("failed"), "lanes_total": len(st)}
-
-
-def write_receipt(out, path):
-    with open(path, "w") as f:
-        json.dump(out, f, indent=1, default=str)
 
 
 def main():
@@ -448,9 +425,10 @@ def main():
     out = machine_meta()
     out["protocol"] = protocol_meta(args)
     out["results"] = {}
+    out["complete"] = False
     write_receipt(out, args.json)
     for lane in lanes:
-        rng = np.random.default_rng([args.seed, list(LANES).index(lane)])
+        rng = np.random.default_rng([args.seed, LANE_INDEX[lane]])
         run_lane(lane, out, rng, args.reps, args.warmups)
         summarize(out)
         entry = out[lane]
@@ -471,9 +449,10 @@ def main():
                 r["vs_e4m3"] = round(r["gops_best"] / ref, 3)
                 print(f"{lane:18} vs e4m3: {r['vs_e4m3']:.2f}x", flush=True)
     summarize(out)
+    out["complete"] = True
     write_receipt(out, args.json)
     print(f"receipt: {args.json}")
-    return 0
+    return 0 if out["results"].get("ok") else 1
 
 
 if __name__ == "__main__":

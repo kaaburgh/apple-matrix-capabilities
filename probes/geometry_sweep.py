@@ -9,15 +9,21 @@ real models actually use" - a 2048-token prefill chunk through wide-N, deep-K,
 low-rank and narrow families.
 
 It imports `lane_sweep.py` from the same directory and reuses its lane table,
-operand encoding, correctness checks and timing loop. It measures a subset of
-lanes by default (fp16 baseline, plain fp8, scaled fp8, e5m2); packed fp4 lanes
-are supported via the same machinery if selected with --lanes.
+operand encoding, correctness checks, seed and timing loop. It measures a
+subset of lanes by default (fp16 baseline, plain fp8, scaled fp8, e5m2); any
+lane in `lane_sweep.py`'s table can be selected with --lanes, including packed
+fp4 lanes (nibble order is discovered per lane, `lo` first, `hi` if needed).
 
 Correctness: every timed (lane, shape, tile) is validated against the
 decoded-operand NumPy reference before timing, as in `lane_sweep.py`. A lane
 whose check fails at a shape is recorded `wrong` for that shape and not timed.
-Receipts record the probe SHA-256, toolchain, power state, per-shape per-tile
-rates, checks and samples; the receipt is rewritten after every lane.
+Receipts record the probe and helper source hashes (`sources`), toolchain,
+power state, the inherited protocol (seed, tiles, warmups, reps), per-lane
+precision/packing and per-shape per-tile rates, checks and samples; the
+receipt is rewritten atomically after every lane. The exit status is nonzero
+when no usable measurement exists. Burst-min rates are published with their
+per-tile samples; spread is surfaced by the matrix generator, and unstable
+shapes should be rerun before any dispatch rule uses them.
 
 Requirements: an Apple Silicon Mac, MLX + NumPy, and the Xcode 27 SDK (see
 METHODS.md for the toolchain gate).
@@ -28,14 +34,13 @@ Usage: python geometry_sweep.py [--json geometry_sweep.json] [--force]
 
 import argparse
 import hashlib
-import json
 import os
 import sys
-import time
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as C  # noqa: E402
 import lane_sweep as ls  # noqa: E402
 
 DEFAULT_LANES = ["f16*f16->f32", "e4m3*e4m3->f32", "mx_e4m3*e4m3->f32", "e5m2*e5m2->f32"]
@@ -73,7 +78,25 @@ def tiles_for(m, k, n):
     return [t for t in ls.TILES if m % t[0] == 0 and n % t[1] == 0 and k % 32 == 0]
 
 
-def run_lane_shape(lane, label, shape, rng, out):
+def is_packed(lane):
+    act, _, wt, _, _, _, _ = ls.LANES[lane]
+    return "fp4" in act or "fp4" in wt
+
+
+def discover_packing(lane, shape, rng):
+    """Nibble order for packed lanes: try `lo`, then `hi`. Returns (order, attempts)."""
+    tile = tiles_for(*shape)[0]
+    attempts = ["lo"]
+    if not ls.check_tile(lane, tile, shape, rng, "lo")["ok"]:
+        attempts.append("hi")
+        if ls.check_tile(lane, tile, shape, rng, "hi")["ok"]:
+            return "hi", attempts
+        raise RuntimeError(f"neither nibble order passed the check "
+                           f"(attempts={attempts})")
+    return "lo", attempts
+
+
+def run_lane_shape(lane, label, shape, rng, out, order):
     m, k, n = shape
     entry = {"checks": [], "tile_errors": {}}
     out[lane][label] = entry
@@ -82,7 +105,7 @@ def run_lane_shape(lane, label, shape, rng, out):
         for tile in tiles_for(m, k, n):
             tname = f"{tile[0]}x{tile[1]}x{tile[2]}"
             try:
-                ok, chk, ctx = ls.check_tile(lane, tile, shape, rng, "lo")
+                ok, chk, ctx = ls.check_tile(lane, tile, shape, rng, order)
                 entry["checks"].append(chk)
                 if not ok:
                     entry["status"] = "wrong"
@@ -91,21 +114,17 @@ def run_lane_shape(lane, label, shape, rng, out):
                 rates[tname] = round(2.0 * m * k * n / min(ts) / 1e6, 1)
                 samples[tname] = [round(t, 3) for t in ts]
             except Exception as exc:
-                entry["tile_errors"][tname] = ls.err_obj(exc, "timing")
+                entry["tile_errors"][tname] = C.err_obj(exc, "timing")
         if not rates:
             entry["status"] = "failed"
-            entry["error"] = {"phase": "timing", "type": "NoTimedTile", "message": ""}
+            entry["error"] = {"phase": "timing", "type": "NoTimedTile",
+                              "message": ""}
             return
         entry.update({"status": "ok", "rates": rates, "samples": samples,
                       "gops_best": max(rates.values())})
     except Exception as exc:
         entry["status"] = "failed"
-        entry["error"] = ls.err_obj(exc, "build")
-
-
-def write_receipt(out, path):
-    with open(path, "w") as f:
-        json.dump(out, f, indent=1, default=str)
+        entry["error"] = C.err_obj(exc, "build")
 
 
 def main():
@@ -120,35 +139,88 @@ def main():
         if lane not in ls.LANES:
             print(f"unknown lane: {lane}", file=sys.stderr)
             return 2
-    shapes = DEFAULT_SHAPES
-    if args.shapes:
-        shapes = [(f"shape_{s}", tuple(int(v) for v in s.split("x")))
-                  for s in args.shapes.split(",")]
+    try:
+        if args.shapes:
+            shapes = [(f"shape_{i}", C.parse_int_tuple(s, "--shapes"))
+                      for i, s in enumerate(args.shapes.split(","))]
+        else:
+            shapes = [(label, C.parse_int_tuple("x".join(map(str, s)), label))
+                      for label, s in DEFAULT_SHAPES]
+    except ValueError as exc:
+        print(f"argument error: {exc}", file=sys.stderr)
+        return 2
+    for label, shape in shapes:
+        if not tiles_for(*shape):
+            print(f"argument error: shape {label} {shape} has no eligible tile "
+                  f"(needs M/N divisible by a listed tile and K % 32 == 0)",
+                  file=sys.stderr)
+            return 2
     if os.path.exists(args.json) and not args.force:
         print(f"{args.json} exists; pass --force to overwrite "
               "(receipts are evidence - prefer a new name)", file=sys.stderr)
         return 2
+
     out = ls.machine_meta()
     out["probe"] = "apple-matrix-capabilities/geometry_sweep"
     out["probe_sha256"] = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
-    out["protocol"] = {"shapes": {label: list(s) for label, s in shapes},
-                       "lanes": lanes, "warmups": 2, "reps": REPS,
-                       "rate": "best of reps per tile, best of tiles per lane/shape"}
+    out["sources"] = C.source_hashes(C.probe_files(__file__, ls.__file__))
+    out["protocol"] = {
+        "shapes": {label: list(s) for label, s in shapes},
+        "lanes_requested": lanes,
+        "tiles": [f"{t[0]}x{t[1]}x{t[2]}" for t in ls.TILES],
+        "check_shape": list(ls.CHK),
+        "rate_shape": list(ls.RATE),
+        "warmups": 2,
+        "reps": REPS,
+        "seed": ls.SEED,
+        "mode": "multiply",
+        "sample": "one kernel call per timed sample, call construction inside the "
+                  "timer; best-of-reps per tile, best-of-tiles per lane/shape",
+    }
+    out["lane_meta"] = {lane: {"relaxed_precision": ls.lane_relaxed(lane),
+                               "packing": None, "packing_attempts": []}
+                        for lane in lanes}
     out["lanes"] = {}
+    out["complete"] = False
+    write_receipt = C.write_receipt
+    write_receipt(out, args.json)
     for lane in lanes:
         out["lanes"][lane] = {}
-        rng = np.random.default_rng([ls.SEED, lanes.index(lane)])
+        rng = np.random.default_rng([ls.SEED, ls.LANE_INDEX[lane]])
+        if is_packed(lane):
+            shape = next(s for _, s in shapes if tiles_for(*s))
+            try:
+                order, attempts = discover_packing(lane, shape, rng)
+            except Exception as exc:
+                out["lane_meta"][lane]["packing_attempts"] = ["lo", "hi"]
+                for label, _ in shapes:
+                    out["lanes"][lane][label] = {
+                        "status": "failed", "checks": [], "tile_errors": {},
+                        "error": C.err_obj(exc, "packing_check")}
+                print(f"{lane:18} PACKING CHECK FAILED {type(exc).__name__}",
+                      flush=True)
+                write_receipt(out, args.json)
+                continue
+            out["lane_meta"][lane]["packing"] = order
+            out["lane_meta"][lane]["packing_attempts"] = attempts
+        else:
+            order = "lo"
         for label, shape in shapes:
-            run_lane_shape(lane, label, shape, rng, out["lanes"])
+            run_lane_shape(lane, label, shape, rng, out["lanes"], order)
             e = out["lanes"][lane][label]
             if e["status"] == "ok":
                 print(f"{lane:18} {label:18} {e['gops_best']:9,.1f} GOPS", flush=True)
             else:
                 print(f"{lane:18} {label:18} {e['status'].upper()}", flush=True)
             write_receipt(out, args.json)
+    ok = sum(1 for lane in lanes for e in out["lanes"][lane].values()
+             if e.get("status") == "ok")
+    out["results"] = {"cells_ok": ok,
+                      "cells_total": sum(len(v) for v in out["lanes"].values())}
+    out["complete"] = True
     write_receipt(out, args.json)
-    print(f"receipt: {args.json}")
-    return 0
+    print(f"receipt: {args.json} ({out['results']})")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

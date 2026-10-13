@@ -12,9 +12,11 @@ integer lanes are reported in the same unit as the float sweep. See METHODS.md.
 Correctness (receipt schema 2): checks use nonuniform random operands and a
 NumPy reference built from the decoded operands; every tile is checked at the
 small check shape and every timed (tile, shape) is checked at the timing shape
-before it is timed. int4b packing is validated in both nibble orders; the
-matching order is recorded. Failures are recorded per lane/tile/shape with
-structured, sanitized error objects, and the receipt is rewritten per lane.
+before it is timed. int4b packing is probed lo-first, with the other nibble
+order tried only if the first fails; the matching order and the attempts are
+recorded. Failures are recorded per lane/tile/shape with structured,
+sanitized error objects; the receipt is written atomically per lane and
+marked `complete` only at the end.
 
 Requirements: an Apple Silicon Mac, MLX + NumPy, and an Xcode/SDK whose
 MetalPerformancePrimitives headers provide the tensor ops (Xcode 27 SDK; see
@@ -27,17 +29,19 @@ Usage: python integer_lanes.py [--json integer_lanes.json] [--reps 7]
 import argparse
 import hashlib
 import json
+import hashlib
 import os
 import platform
-import re
 import statistics
-import subprocess
 import sys
 import time
 
 import numpy as np
 
 import mlx.core as mx
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as C  # noqa: E402
 
 RECEIPT_SCHEMA = 2
 SEED = 20261012
@@ -95,6 +99,9 @@ LANES = {
 # (rows per threadgroup tile, columns per tile, simdgroups per threadgroup)
 TILES = [(64, 32, 4), (64, 64, 2), (64, 64, 4), (64, 128, 4), (128, 128, 8)]
 CHK = (128, 256, 256)
+
+# Stable per-lane seed index: independent of the requested lane subset/order.
+LANES_INDEX = {lane: i for i, lane in enumerate(LANES)}
 
 
 def pack_nibbles(w, order):
@@ -207,63 +214,52 @@ def time_tile(lane, tile, relaxed, a_mx, b_mx, shape, reps, calls):
     return min(ts), statistics.median(ts), [round(t * 1e3, 3) for t in ts]
 
 
-def sanitize(text, limit=200):
-    t = str(text).splitlines()[0].strip() if text else ""
-    t = re.sub(r"(?:/Users|/private|/var/folders|/opt|/Volumes)/[^\s\"']*", "<path>", t)
-    return t[:limit]
-
-
-def err_obj(exc, phase):
-    return {"phase": phase, "type": type(exc).__name__, "message": sanitize(exc)}
-
-
-def sh(cmd):
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        first = r.stdout.strip().splitlines()
-        return first[0] if first else "unknown"
-    except Exception:
-        return "unknown"
+err_obj = C.err_obj
+write_receipt = C.write_receipt
 
 
 def machine_meta():
     dev = mx.device_info()
-    power = {"source": "unknown", "low_power_mode": "unknown"}
     try:
-        batt = sh(["pmset", "-g", "batt"])
-        power["source"] = ("ac" if "AC Power" in batt
-                           else "battery" if "Battery Power" in batt else "unknown")
-        m = re.search(r"lowpowermode\s+(\d)",
-                      subprocess.run(["pmset", "-g"], capture_output=True, text=True,
-                                     timeout=5).stdout)
-        if m:
-            power["low_power_mode"] = (m.group(1) == "1")
-    except Exception:
-        pass
-    try:
-        probe_hash = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
+        with open(__file__, "rb") as f:
+            probe_hash = hashlib.sha256(f.read()).hexdigest()
     except Exception:
         probe_hash = "unknown"
+    device = {k: dev.get(k) for k in ("device_name", "architecture", "memory_size",
+                                      "max_recommended_working_set_size")}
+    device["gpu_cores"] = C.gpu_cores()
     return {
         "probe": "apple-matrix-capabilities/integer_lanes",
         "receipt_schema": RECEIPT_SCHEMA,
         "probe_sha256": probe_hash,
+        "sources": C.source_hashes(C.probe_files(__file__)),
         "mlx": mx.__version__,
         "python": platform.python_version(),
         "numpy": np.__version__,
-        "os": {"version": platform.mac_ver()[0], "build": sh(["sw_vers", "-buildVersion"])},
-        "toolchain": {"xcode": sh(["xcodebuild", "-version"]),
-                      "metal": sh(["xcrun", "metal", "--version"])},
-        "power": power,
-        "env": {"MLX_ENABLE_TF32": os.environ.get("MLX_ENABLE_TF32", "unset")},
-        "device": {k: dev.get(k) for k in ("device_name", "architecture", "memory_size",
-                                           "max_recommended_working_set_size")},
+        "os": {"version": platform.mac_ver()[0],
+               "build": C.first_line(C.run_text(["sw_vers", "-buildVersion"]))},
+        "toolchain": C.toolchain_meta(),
+        "power": C.power_meta(),
+        "env": {"MLX_ENABLE_TF32": os.environ.get("MLX_ENABLE_TF32", "unset"),
+                "MLX_METAL_JIT": os.environ.get("MLX_METAL_JIT", "unset")},
+        "device": device,
     }
 
 
-def write_receipt(out, path):
-    with open(path, "w") as f:
-        json.dump(out, f, indent=1, default=str)
+def discover_packing(lane, tile, relaxed, rng):
+    """Nibble order for int4b lanes: try `lo`, then `hi`. Returns (order, attempts).
+
+    Raises RuntimeError when neither order passes; callers must record the
+    failure as structured evidence instead of letting the process die.
+    """
+    attempts = ["lo"]
+    if not check_tile(lane, tile, relaxed, rng, "lo")["ok"]:
+        attempts.append("hi")
+        if check_tile(lane, tile, relaxed, rng, "hi")["ok"]:
+            return "hi", attempts
+        raise RuntimeError("neither nibble order passed the check "
+                           f"(attempts={attempts})")
+    return "lo", attempts
 
 
 def main():
@@ -282,9 +278,14 @@ def main():
     if args.reps < 1 or args.calls < 1:
         print("--reps and --calls must be positive", file=sys.stderr)
         return 2
-    shapes = [tuple(int(v) for v in s.split("x")) for s in args.shapes.split(",")]
-    tiles = ([tuple(int(v) for v in t.split("x")) for t in args.tiles.split(",")]
-             if args.tiles else TILES)
+    try:
+        shapes = [C.parse_int_tuple(s, "--shapes") for s in args.shapes.split(",")]
+        tiles = ([C.validate_tile(C.parse_int_tuple(t, "--tiles")) for t in
+                  args.tiles.split(",")] if args.tiles
+                 else [C.validate_tile(t) for t in TILES])
+    except ValueError as exc:
+        print(f"argument error: {exc}", file=sys.stderr)
+        return 2
     lanes = args.lanes.split(",") if args.lanes else list(LANES)
     for lane in lanes:
         if lane not in LANES:
@@ -311,15 +312,24 @@ def main():
                              "packing_checked": "both nibble orders when int4b is present"}})
     rows = []
     out["rows"] = rows
+    out["complete"] = False
     write_receipt(out, args.json)
-    rng = np.random.default_rng(args.seed)
     for lane in lanes:
+        rng = np.random.default_rng([args.seed, LANES_INDEX[lane]])
         order = None
+        attempts = []
         if has_i4b(lane):
-            order = "lo"
-            if not check_tile(lane, tiles[0], args.relaxed, rng, "lo")["ok"]:
-                if check_tile(lane, tiles[0], args.relaxed, rng, "hi")["ok"]:
-                    order = "hi"
+            try:
+                order, attempts = discover_packing(lane, tiles[0],
+                                                   args.relaxed, rng)
+            except Exception as exc:
+                rows.append(dict(lane=lane, tile=list(tiles[0]), status="failed",
+                                 packing=order, packing_attempts=attempts, checks=[],
+                                 error=err_obj(exc, "packing_check")))
+                print(f"{lane:16} tile {tiles[0]}: PACKING CHECK FAILED "
+                      f"{type(exc).__name__}", flush=True)
+                write_receipt(out, args.json)
+                continue
         for tile in tiles:
             try:
                 chk = check_tile(lane, tile, args.relaxed, rng, order)
@@ -375,6 +385,7 @@ def main():
         "rows_wrong": sum(1 for r in rows if r["status"] == "wrong"),
         "rows_failed": sum(1 for r in rows if r["status"] == "failed"),
         "rows_total": len(rows)}
+    out["complete"] = True
     write_receipt(out, args.json)
     print(f"receipt: {args.json} ({out['results']})")
     return 0 if out["results"]["rows_ok"] else 1
