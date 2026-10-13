@@ -275,6 +275,13 @@ class TestValidator(Fixture):
         cap = self.cap({"e4m3*e4m3->f32": self.cell()})
         self.assert_error(bm.validate(cap, self.root), "schema:")
 
+    def test_receipt_gpu_cores_mismatch_rejected_when_present(self):
+        rec = sweep_receipt()
+        rec["device"]["gpu_cores"] = 12
+        self.write_receipt(rec)
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assert_error(bm.validate(cap, self.root), "receipt gpu_cores 12")
+
     def test_missing_memory_size_on_cited_receipt_rejected(self):
         rec = sweep_receipt()
         del rec["device"]["memory_size"]

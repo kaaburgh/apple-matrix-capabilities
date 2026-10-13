@@ -390,6 +390,9 @@ def receipt_identity_errors(rec, chip, c):
     if c.get("mlx_at_measurement") and mlx != c.get("mlx_at_measurement"):
         errs.append(f"{chip}: receipt mlx {mlx!r} != "
                     f"mlx_at_measurement {c.get('mlx_at_measurement')!r}")
+    cores = dev.get("gpu_cores")
+    if isinstance(cores, int) and not isinstance(cores, bool) and cores != c.get("gpu_cores"):
+        errs.append(f"{chip}: receipt gpu_cores {cores} != {c.get('gpu_cores')!r}")
     return errs
 
 

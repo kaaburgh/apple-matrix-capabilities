@@ -5,8 +5,9 @@
 [`tools/build_matrix.py`](../tools/build_matrix.py) — do not edit them by hand. A JSON Schema
 for contributors is in [`schema.json`](schema.json); the build tool performs the stricter
 checks a schema cannot: receipt path containment, lane existence and status, measured-rate
-fidelity, a successful same-receipt `f16` baseline, and device identity (device name,
-architecture, memory, MLX version).
+fidelity, completion evidence, a successful same-receipt `f16` baseline, symlink-safe path
+containment, and device identity (device name, architecture, memory, MLX version — and the
+receipt's own `gpu_cores` once a receipt carries it).
 
 ## Fields
 
@@ -25,7 +26,8 @@ architecture, memory, MLX version).
 
 Lane naming:
 
-- `A*B->C` — left operand format × right operand format → accumulator format;
+- `A*B->C` — left operand format × right operand format → declared destination type
+  (not a claim about internal accumulator precision; see METHODS.md);
 - `t_` — transposed right operand;
 - `mx_` — a UE8M0 block-scale plane on the right operand;
 - `strict_` — the lane runs with `relaxed_precision` off (scaled lanes are strict by default);

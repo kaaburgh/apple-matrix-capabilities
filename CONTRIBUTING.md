@@ -59,6 +59,11 @@ M5 Ultra, the M6 Pro/Max variants and future generations are `unknown` today.
 - **Scope is capabilities**, not implementations: no model benchmarks and no vendor
   speculation; the probe kernels in `probes/` are the point. If a cell is derived rather than
   measured, tag it `inferred` and say from where.
+- **Privacy**: the receipt is the artifact. Do not include process listings, hostnames,
+  usernames, absolute home paths or raw logs in PRs, commit messages or attachments; the
+  probes sanitize what they write, nothing else is sanitized for you.
+- **Licensing**: by contributing you agree the split in LICENSES.md applies — scripts under
+  MIT, data (receipts, the JSON map) and text under CC BY 4.0.
 - Small PRs are welcome; there is no minimum number of rows.
 
 ## Review
