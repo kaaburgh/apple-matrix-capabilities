@@ -392,7 +392,8 @@ class TestProbeMainToValidator(unittest.TestCase):
             ok = shape != lane_sweep.CHK or order in ok_orders
             entry = {"stage": stage or (("check" if shape == lane_sweep.CHK
                                          else "rate") + "_shape"),
-                     "tile": f"{tile[0]}x{tile[1]}x{tile[2]}", "rel_err": 0.0,
+                     "tile": f"{tile[0]}x{tile[1]}x{tile[2]}",
+                     "rel_err": 0.0 if ok else 1.0,  # rejected: above tolerance
                      "tolerance": 1e-5, "ok": ok}
             return ok, entry, {"kern": None, "inputs": None,
                                "m": shape[0], "n": shape[2]}
@@ -416,6 +417,7 @@ class TestProbeMainToValidator(unittest.TestCase):
                          ("hi", ["lo", "hi"]))
         lo, hi = lane["checks"][0], lane["checks"][1]
         self.assertTrue(lo["exploratory"] and not lo["ok"] and lo["order"] == "lo")
+        self.assertGreater(lo["rel_err"], lo["tolerance"])  # honest candidate error
         self.assertFalse(hi["exploratory"])
         self.assertTrue(hi["ok"] and hi["order"] == "hi")
 
@@ -505,7 +507,7 @@ class TestProbeMainToValidator(unittest.TestCase):
             ok = order == "hi"
             entry = {"stage": stage or (("check" if shape == lane_sweep.CHK else "rate")
                      + "_shape"), "tile": f"{tile[0]}x{tile[1]}x{tile[2]}",
-                     "rel_err": 0.0, "tolerance": 1e-5, "ok": ok}
+                     "rel_err": 0.0 if ok else 1.0, "tolerance": 1e-5, "ok": ok}
             return ok, entry, {"kern": None, "inputs": None,
                                "m": shape[0], "n": shape[2]}
         lane_sweep.check_tile = check

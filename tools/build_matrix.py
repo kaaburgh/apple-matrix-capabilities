@@ -291,7 +291,7 @@ def int_row_binding_errors(where, row):
     return errs
 
 
-def _status_errors(where, entry, require_checks=False):
+def _status_errors(where, entry, require_checks=False, packed_lane=False):
     errs = []
     status = entry.get("status")
     if status not in ("ok", "wrong", "failed"):
@@ -299,11 +299,21 @@ def _status_errors(where, entry, require_checks=False):
         return errs
     checks = entry.get("checks", [])
     errs += check_errors(where, checks)
+    for i, c in enumerate(checks):
+        if not (isinstance(c, dict) and c.get("exploratory")):
+            continue
+        # The exemption exists only for a rejected packing-discovery candidate:
+        # a packed lane, a discovery-stage check, and an attempted order.
+        if not (packed_lane and c.get("stage") == "check_shape"
+                and isinstance(c.get("order"), str)):
+            errs.append(f"{where}: checks[{i}] is exploratory outside packing "
+                        f"discovery")
     if status == "ok":
         if require_checks and not checks:
             errs.append(f"{where}: status 'ok' without any recorded check")
         if not all(c.get("ok") for c in checks
-                   if isinstance(c, dict) and not c.get("exploratory")):
+                   if isinstance(c, dict)
+                   and not (packed_lane and c.get("exploratory"))):
             errs.append(f"{where}: status 'ok' but a recorded check failed")
         if not finite_pos(entry.get("gops_best")):
             errs.append(f"{where}: status 'ok' without a finite positive gops_best")
@@ -384,12 +394,15 @@ def completion_errors(rec, version=None):
         proto = rec.get("protocol") or {}
         raw_tiles = proto.get("tiles")
         raw_shapes = proto.get("shapes")
-        tiles = [tuple(int(x) for x in t0.split("x"))
-                 for t0 in raw_tiles if isinstance(t0, str)] \
-            if isinstance(raw_tiles, list) else []
-        shapes = [tuple(int(x) for x in s0.split("x"))
-                  for s0 in raw_shapes if isinstance(s0, str)] \
-            if isinstance(raw_shapes, list) else []
+        parsed_tiles, tile_errs = parse_tile_list("protocol.tiles", raw_tiles) \
+            if raw_tiles is not None else ([], [])
+        for e in tile_errs:
+            errs.append(f"completion unproven: {e}")
+        tiles = [t for _name, t in parsed_tiles]
+        shapes, shape_errs = parse_shape_list("protocol.shapes", raw_shapes) \
+            if raw_shapes is not None else ([], [])
+        for e in shape_errs:
+            errs.append(f"completion unproven: {e}")
         if explicit and (not tiles or not shapes):
             errs.append("completion unproven: schema 3 needs nonempty parseable "
                         "protocol.tiles and protocol.shapes")
@@ -450,6 +463,12 @@ def completion_errors(rec, version=None):
                                    or v <= 0 for v in d)):
                         errs.append(f"completion unproven: protocol.shapes"
                                     f"[{label!r}] is not three positive integers")
+            _parsed, tile_errs = parse_tile_list("protocol.tiles", proto.get("tiles"))
+            if not isinstance(proto.get("tiles"), list) or not proto.get("tiles"):
+                errs.append("completion unproven: schema 3 needs a nonempty "
+                            "protocol.tiles list")
+            for e in tile_errs:
+                errs.append(f"completion unproven: {e}")
         if not isinstance(lanes, dict) or not req:
             if flagged:
                 return errs
@@ -486,13 +505,60 @@ def completion_errors(rec, version=None):
     return errs
 
 
-def _tile_eligible(tname, dims):
-    try:
-        mt, nt, _ = (int(v) for v in tname.split("x"))
-    except ValueError:
-        return False
+def parse_tile_list(name, items):
+    """Validate a tile request list. Returns ([(name, (rows, cols, simdgroups))], errors).
+
+    Checks arity, positive dimensions and the supported threadgroup choices
+    *before* any consumer does arithmetic on the components.
+    """
+    parsed, errs = [], []
+    if not isinstance(items, list):
+        return [], [f"{name} must be an array of tile strings"]
+    for i, t in enumerate(items):
+        if not isinstance(t, str):
+            errs.append(f"{name}[{i}] is not a string")
+            continue
+        parts = t.split("x")
+        if len(parts) != 3 or not all(p0.isdigit() for p0 in parts):
+            errs.append(f"{name}[{i}] {t!r} is not rows x cols x simdgroups")
+            continue
+        mt, nt, sg = (int(p0) for p0 in parts)
+        if mt <= 0 or nt <= 0 or sg not in (1, 2, 4, 8):
+            errs.append(f"{name}[{i}] {t!r} has non-positive dimensions or "
+                        f"unsupported simdgroups")
+            continue
+        parsed.append((t, (mt, nt, sg)))
+    return parsed, errs
+
+
+def parse_shape_list(name, items):
+    """Validate a shape request list (MxKxN strings). Returns (parsed, errors)."""
+    parsed, errs = [], []
+    if not isinstance(items, list):
+        return [], [f"{name} must be an array of shape strings"]
+    for i, t in enumerate(items):
+        if not isinstance(t, str):
+            errs.append(f"{name}[{i}] is not a string")
+            continue
+        parts = t.split("x")
+        if len(parts) != 3 or not all(p0.isdigit() for p0 in parts):
+            errs.append(f"{name}[{i}] {t!r} is not MxKxN")
+            continue
+        m, k, n = (int(p0) for p0 in parts)
+        if m <= 0 or k <= 0 or n <= 0:
+            errs.append(f"{name}[{i}] {t!r} has non-positive components")
+            continue
+        parsed.append((m, k, n))
+    return parsed, errs
+
+
+def eligible_tiles(tile_strs, dims):
+    """Names of tiles that divide the shape; errors for malformed requests."""
     m, k, n = dims
-    return m % mt == 0 and n % nt == 0 and k % 32 == 0
+    parsed, errs = parse_tile_list("protocol.tiles", tile_strs)
+    out = [t for t, (mt, nt, _sg) in parsed
+           if m % mt == 0 and n % nt == 0 and k % 32 == 0]
+    return out, errs
 
 
 def receipt_semantic_errors(rel, rec):
@@ -511,7 +577,8 @@ def receipt_semantic_errors(rel, rec):
                 continue
             if not key.endswith("->f32") and not key.endswith("->i32"):
                 errs.append(f"{rel}: lane {key!r} has an unexpected output type")
-            errs += _status_errors(f"{rel}:{key}", entry, strict)
+            errs += _status_errors(f"{rel}:{key}", entry, strict,
+                                   packed_lane=("fp4" in key))
             if strict:
                 dims = tuple(proto.get("shape") or PROTOCOL_SHAPE)
                 tiles = [t for t in proto.get("tiles", []) if isinstance(t, str)]
@@ -543,11 +610,18 @@ def receipt_semantic_errors(rel, rec):
         want = f"{PROTOCOL_SHAPE[0]}x{PROTOCOL_SHAPE[1]}x{PROTOCOL_SHAPE[2]}"
         if not isinstance(shapes, list) or want not in shapes:
             errs.append(f"{rel}: protocol.shapes must include {want}")
-        reps = rec.get("reps") if isinstance(rec.get("reps"), int) else None
-        proto_reps = proto.get("reps")
-        if (version == 3 and isinstance(proto_reps, int) and reps is not None
-                and proto_reps != reps):
-            errs.append(f"{rel}: protocol.reps {proto_reps} != receipt reps {reps}")
+        def _pos_int(v):
+            return isinstance(v, int) and not isinstance(v, bool) and v >= 1
+        reps = rec.get("reps") if _pos_int(rec.get("reps")) else None
+        proto_reps = proto.get("reps") if _pos_int(proto.get("reps")) else None
+        if version == 3:
+            if reps is None:
+                errs.append(f"{rel}: schema 3 needs a positive integer receipt reps")
+            if proto_reps is None:
+                errs.append(f"{rel}: schema 3 needs a positive integer "
+                            f"protocol.reps")
+            elif reps is not None and proto_reps != reps:
+                errs.append(f"{rel}: protocol.reps {proto_reps} != receipt reps {reps}")
         for i, row in enumerate(rec.get("rows", [])):
             where = f"{rel}:rows[{i}]"
             errs += int_row_errors(where, row, strict)
@@ -562,7 +636,7 @@ def receipt_semantic_errors(rel, rec):
                                         f"positive {field}")
                     if not isinstance(row.get("stage"), str):
                         errs.append(f"{where}: schema 3 terminal row needs a stage")
-                    if reps and row.get("status") == "ok":
+                    if reps is not None and row.get("status") == "ok":
                         ts = row.get("ms_samples")
                         if isinstance(ts, list) and len(ts) != reps:
                             errs.append(f"{where}: sample count {len(ts)} != "
@@ -590,11 +664,16 @@ def receipt_semantic_errors(rel, rec):
                         errs.append(f"{where}: measured label {label!r} has no "
                                     f"valid dimensions in protocol.shapes")
                         continue
-                    tiles = [t for t in proto.get("tiles", []) if isinstance(t, str)]
-                    # Schema-2 geometry receipts predate protocol.tiles; tile
-                    # accounting applies where the request is recorded (v3).
-                    eligible = ([t for t in tiles if _tile_eligible(t, dims)]
-                                if tiles else None)
+                    raw_tiles = proto.get("tiles")
+                    if raw_tiles is None:
+                        # Historical (v2) receipts have no tile request; v3
+                        # absence is reported by completion.
+                        eligible = None
+                    else:
+                        eligible, perrs = eligible_tiles(raw_tiles, dims)
+                        errs += [f"{where}: {e}" for e in perrs]
+                        if perrs:
+                            eligible = None
                     errs += float_binding_errors(
                         where, cell, tuple(dims), proto.get("reps"),
                         expected_tiles=eligible)
@@ -647,8 +726,15 @@ def scan_receipts(root=ROOT):
             cache[rel.replace("\\", "/")] = rec
             for path in nonfinite_paths(rec):
                 errors.append(f"{rel}: non-finite number at {path}")
-            errors += receipt_schema_errors(rel, rec, root)
-            errors += receipt_semantic_errors(rel, rec)
+            schema_errs = receipt_schema_errors(rel, rec, root)
+            errors += schema_errs
+            if schema_errs:
+                continue  # semantic rules depend on valid structure
+            try:
+                errors += receipt_semantic_errors(rel, rec)
+            except Exception as exc:
+                errors.append(f"{rel}: semantic validator error: "
+                              f"{type(exc).__name__}: {exc}")
     return errors, cache
 
 

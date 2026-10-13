@@ -34,8 +34,24 @@
         "protocol": {"$ref": "#/$defs/integer_protocol"},
         "complete": {"type": "boolean"},
         "results": {"type": "object"},
-        "rows": {"type": "array", "items": {"$ref": "#/$defs/int_row"}}
-      }
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/int_row"}},
+        "reps": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"receipt_schema": {"const": 3}},
+                 "required": ["receipt_schema"]},
+          "then": {
+            "required": ["reps"],
+            "properties": {
+              "protocol": {
+                "required": ["reps"],
+                "properties": {"reps": {"type": "integer", "minimum": 1}}
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "title": "geometry_sweep (shapes companion)",
@@ -57,7 +73,24 @@
             "additionalProperties": {"$ref": "#/$defs/geom_cell"}
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"receipt_schema": {"const": 3}},
+                 "required": ["receipt_schema"]},
+          "then": {
+            "properties": {
+              "protocol": {
+                "required": ["tiles"],
+                "properties": {
+                  "tiles": {"type": "array", "items": {"type": "string"},
+                            "minItems": 1}
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "title": "legacy or imported evidence receipt",
@@ -95,7 +128,7 @@
       "properties": {
         "shape": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
         "check_shape": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
-        "tiles": {"type": "array", "items": {"type": "string"}},
+        "tiles": {"type": "array", "items": {"type": "string"}, "minItems": 1},
         "warmups": {"type": "integer", "minimum": 0},
         "reps": {"type": "integer", "minimum": 1},
         "sample": {"type": "string"},
@@ -110,8 +143,9 @@
       "properties": {
         "shapes": {"type": "array", "items": {"type": "string"}},
         "check_shape": {"type": "string"},
-        "tiles": {"type": "array", "items": {"type": "string"}},
+        "tiles": {"type": "array", "items": {"type": "string"}, "minItems": 1},
         "warmups": {"type": "integer", "minimum": 0},
+        "reps": {"type": "integer", "minimum": 1},
         "seed": {"type": "integer"},
         "sample": {"type": "string"},
         "packing_checked": {"type": "string"}
@@ -130,7 +164,7 @@
         },
         "lanes": {"type": "array", "items": {"type": "string"}},
         "lanes_requested": {"type": "array", "items": {"type": "string"}},
-        "tiles": {"type": "array", "items": {"type": "string"}},
+        "tiles": {"type": "array", "items": {"type": "string"}, "minItems": 1},
         "check_shape": {"type": "array", "items": {"type": "integer"}},
         "rate_shape": {"type": "array", "items": {"type": "integer"}},
         "warmups": {"type": "integer", "minimum": 0},
