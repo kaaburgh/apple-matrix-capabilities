@@ -299,15 +299,25 @@ def _status_errors(where, entry, require_checks=False, packed_lane=False):
         return errs
     checks = entry.get("checks", [])
     errs += check_errors(where, checks)
+    attempts = entry.get("packing_attempts")
+    selected = entry.get("packing")
     for i, c in enumerate(checks):
         if not (isinstance(c, dict) and c.get("exploratory")):
             continue
         # The exemption exists only for a rejected packing-discovery candidate:
-        # a packed lane, a discovery-stage check, and an attempted order.
+        # a packed lane, a discovery-stage check, and an order that was really
+        # attempted and is not the selected order.
         if not (packed_lane and c.get("stage") == "check_shape"
                 and isinstance(c.get("order"), str)):
             errs.append(f"{where}: checks[{i}] is exploratory outside packing "
                         f"discovery")
+            continue
+        if not isinstance(attempts, list) or c["order"] not in attempts:
+            errs.append(f"{where}: checks[{i}] exploratory order {c['order']!r} "
+                        f"is not in packing_attempts {attempts!r}")
+        if selected is not None and c["order"] == selected:
+            errs.append(f"{where}: checks[{i}] marks the selected order "
+                        f"{selected!r} exploratory")
     if status == "ok":
         if require_checks and not checks:
             errs.append(f"{where}: status 'ok' without any recorded check")

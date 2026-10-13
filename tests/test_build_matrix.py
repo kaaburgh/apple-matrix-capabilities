@@ -526,6 +526,78 @@ class TestValidator(Fixture):
         cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
         self.assert_error(bm.validate(cap, self.root), "no passing correctness check")
 
+    def _packed_lane(self, packing, attempts, extra_check=None):
+        lane = lane_from_samples({TILES[0]: samples_for(500.0),
+                                  TILES[1]: samples_for(490.0)},
+                                 attempts=attempts)
+        lane["packing"] = packing
+        lane["checks"][0]["order"] = packing             # passing selected-order
+        lane["checks"][0]["exploratory"] = False
+        if extra_check:
+            lane["checks"].append(extra_check)
+        return lane
+
+    def _packed_receipt(self, lane):
+        rec = sweep_receipt(
+            lanes_requested=["f16*f16->f32", "e4m3*e4m3->f32", "fp4*fp4->f32"])
+        rec["fp4*fp4->f32"] = lane
+        status = lane["status"]
+        rec["results"] = {"ok": 3 if status == "ok" else 2,
+                          "wrong": 1 if status == "wrong" else 0,
+                          "failed": 1 if status == "failed" else 0,
+                          "lanes_total": 3}
+        return rec
+
+    def test_exploratory_selected_order_duplicate_rejected(self):
+        # Additive regression: the selected-order path already passed, but a
+        # second exploratory entry for the same order must not be exempt.
+        lane = self._packed_lane(
+            "lo", ["lo", "hi"],
+            extra_check={"stage": "check_shape", "tile": TILES[0], "order": "lo",
+                         "exploratory": True, "ok": False, "rel_err": 1.0,
+                         "tolerance": 1e-5})
+        self.write_receipt(self._packed_receipt(lane))
+        cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
+        self.assert_error(bm.validate(cap, self.root),
+                          "marks the selected order 'lo' exploratory")
+
+    def test_exploratory_order_not_attempted_rejected(self):
+        lane = self._packed_lane(
+            "lo", ["lo"],
+            extra_check={"stage": "check_shape", "tile": TILES[0], "order": "hi",
+                         "exploratory": True, "ok": False, "rel_err": 1.0,
+                         "tolerance": 1e-5})
+        self.write_receipt(self._packed_receipt(lane))
+        cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
+        self.assert_error(bm.validate(cap, self.root), "not in packing_attempts")
+
+    def test_valid_hi_fallback_still_passes(self):
+        lane = self._packed_lane("hi", ["lo", "hi"])
+        lane["checks"][0].update({"order": "hi", "exploratory": False})
+        lane["checks"].insert(0, {"stage": "check_shape", "tile": TILES[0],
+                                  "order": "lo", "exploratory": True, "ok": False,
+                                  "rel_err": 1.0, "tolerance": 1e-5})
+        self.write_receipt(self._packed_receipt(lane))
+        cap = self.cap({"fp4*fp4->f32": self.cell(rate=500.0, ratio=0.5)})
+        self.assertEqual(bm.validate(cap, self.root), [])
+
+    def test_all_candidates_failed_without_packing_remains_valid(self):
+        lane = self._packed_lane("lo", ["lo", "hi"])
+        lane["status"] = "wrong"
+        lane["packing"] = None
+        lane["checks"] = [
+            {"stage": "check_shape", "tile": TILES[0], "order": "lo",
+             "exploratory": True, "ok": False, "rel_err": 1.0, "tolerance": 1e-5},
+            {"stage": "check_shape", "tile": TILES[0], "order": "hi",
+             "exploratory": True, "ok": False, "rel_err": 1.0, "tolerance": 1e-5},
+        ]
+        for key in ("rates", "samples", "gops_best", "gops_med"):
+            lane.pop(key, None)
+        self.write_receipt(self._packed_receipt(lane))
+        # The failed lane is archive evidence; the cited cell uses a good lane.
+        cap = self.cap({"e4m3*e4m3->f32": self.cell()})
+        self.assertEqual(bm.validate(cap, self.root), [])
+
     def test_integer_v3_missing_receipt_reps_rejected(self):
         rec = integer_receipt()
         del rec["reps"]
