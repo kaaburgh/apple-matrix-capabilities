@@ -14,5 +14,5 @@ Read README.md, METHODS.md, CONTRIBUTING.md and matrix/README.md first.
 - Run python tools/build_matrix.py --check, the regression tests
   (`python -m unittest discover -s tests`), and compile-check all probes:
   `python -m py_compile probes/_common.py probes/lane_sweep.py probes/integer_lanes.py
-  probes/geometry_sweep.py`. Changes to probe behavior require correctness checks on
+  probes/geometry_sweep.py tools/phase0a_capture_spike.py`. Changes to probe behavior require correctness checks on
   suitable hardware.
