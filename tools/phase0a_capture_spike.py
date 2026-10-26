@@ -91,22 +91,34 @@ def source_hashes(repo_root: Path) -> dict[str, str]:
             for p in paths}
 
 
-def capture_once(mx, dispatch, trace_path: Path):
-    """Capture a dispatch on a *fresh* GPU stream and return its evaluated result.
+def capture_once(mx, dispatch, trace_path: Path, *,
+                 mode: str = "fresh-stream"):
+    """Capture one evaluated dispatch without a pre-capture command buffer.
 
-    MLX Metal command encoders preallocate their next MTLCommandBuffer after
-    each commit. Reusing the pre-warmed default stream can therefore commit
-    a command buffer created *before* the capture interval; Metal only traces
-    buffers created and committed within the interval. Always create a new
-    stream AFTER start_capture, then evaluate and synchronize before stopping.
+    MLX 0.32.3 command encoders pre-create their next Metal command buffer
+    after every commit. Metal capture requires both creation and commit
+    inside the capture interval.
+
+    fresh-stream: create a *new GPU stream/queue* inside capture, then eval.
+    default-stream: flush the pre-created default-stream buffer after capture
+    starts, before dispatch; the dispatch uses the next, in-window buffer.
+    The latter is a diagnostic fallback for residency-set replay problems.
+    mx.eval() is synchronous; an extra trailing synchronize would commit a
+    second (empty) command buffer and is intentionally omitted.
     """
+    if mode not in ("fresh-stream", "default-stream"):
+        raise ValueError("unsupported capture mode")
     mx.metal.start_capture(str(trace_path))
     try:
-        capture_stream = mx.new_stream(mx.gpu)
-        with mx.stream(capture_stream):
+        if mode == "fresh-stream":
+            capture_stream = mx.new_stream(mx.gpu)
+            with mx.stream(capture_stream):
+                result = dispatch()
+                mx.eval(result)
+        else:
+            mx.synchronize(mx.default_stream(mx.gpu))
             result = dispatch()
             mx.eval(result)
-            mx.synchronize(capture_stream)
         return result
     finally:
         mx.metal.stop_capture()
@@ -153,7 +165,8 @@ def _machine_metadata(mx, ls, root: Path) -> dict:
     }
 
 
-def run(trace_path: Path, shape: str = "rate") -> dict:
+def run(trace_path: Path, shape: str = "rate", *,
+        capture_mode: str = "fresh-stream") -> dict:
     """Return a sanitized JSON-ready report on every normal/exceptional exit.
 
     BLOCKED: environment/SDK unsuitable. FAILED: experiment attempted and did
@@ -161,6 +174,8 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
     """
     if shape not in ("check", "rate"):
         raise ValueError("shape must be check or rate")
+    if capture_mode not in ("fresh-stream", "default-stream"):
+        raise ValueError("capture_mode must be fresh-stream or default-stream")
     stage = "preflight"
     report = {
         "status": "blocked", "stage": stage, "shape_choice": shape,
@@ -209,7 +224,8 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
                           f"amc_{tag}_{shape_tuple[0]}x{shape_tuple[1]}x{shape_tuple[2]}_"
                           f"{mt}_{nt}_{sg}"),
                       dispatches_requested=1,
-                      capture_stream="new_gpu_stream_created_inside_capture",
+                      capture_mode=capture_mode,
+                      expected_capture_command_buffers=1,
                       command_buffers_verified=False)
 
         stage = "check"
@@ -238,7 +254,7 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
             mx.clear_cache()  # cached intermediates only; ctx retains GPU inputs
 
         stage = "capture"
-        captured = capture_once(mx, dispatch, trace_path)
+        captured = capture_once(mx, dispatch, trace_path, mode=capture_mode)
         if not trace_path.exists():
             raise RuntimeError("Capture finished without creating .gputrace")
 
@@ -268,8 +284,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="new .gputrace bundle path (must not exist)")
     parser.add_argument("--shape", choices=("check", "rate"), default="rate",
                         help="check = fast smoke test; rate = useful M5 profiling geometry")
+    parser.add_argument("--capture-mode",
+                        choices=("fresh-stream", "default-stream"),
+                        default="fresh-stream",
+                        help="new in-capture stream or fallback pre-flushed default stream")
     args = parser.parse_args(argv)
-    report = run(args.trace, args.shape)
+    report = run(args.trace, args.shape, capture_mode=args.capture_mode)
     print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
     if report["status"] == "blocked":
         return 2
