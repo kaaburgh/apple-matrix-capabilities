@@ -159,6 +159,9 @@ class TestLaneRun(unittest.TestCase):
         self.ls.RATE = (2048, 4096, 4096)
         self.ls.TILES = [(64,128,4), (64,64,2)]
         self.ls.C = types.SimpleNamespace(finite_check=lambda value: value)
+        self.ls.lane_kind = lambda dtype: (
+            "fp4" if "fp4" in dtype else "f16" if dtype == "half"
+            else "f32" if dtype == "float" else "fp8")
         self.ls.lane_relaxed = lambda lane: not lane.startswith("strict_")
         self.ls.check_tile = Mock(side_effect=self.good_check)
         self.ls.call = Mock(return_value=np.array([1,2,3]))
@@ -214,8 +217,13 @@ class TestLaneRun(unittest.TestCase):
         self.ls.check_tile.return_value = (False, {"ok": False}, {})
         self.ls.check_tile.side_effect = None
         report = app.run(self.args(), env={"MTL_CAPTURE_ENABLED": "1"})
-        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["status"], "wrong")
         self.assertEqual(report["stage"], "correctness")
+        self.assertEqual(report["lane"], "f16*f16->f32")
+        self.assertEqual(report["packing_attempts"], ["lo"])
+        self.assertEqual(len(report["checks"]), 1)
+        self.assertIn("sources", report)
+        self.assertFalse(report["trace_written"])
         self.mx.metal.start_capture.assert_not_called()
 
     def test_packing_fallback_resets_seed_index(self):
@@ -226,10 +234,70 @@ class TestLaneRun(unittest.TestCase):
                 "ok": order == "hi", "stage": stage}, {
                     "kern":"fake", "inputs":[], "m":shape[0], "n":shape[2]}
         self.ls.check_tile.side_effect = conditional
-        report = app.run(self.args(shape="check"), env={"MTL_CAPTURE_ENABLED": "1"})
+        report = app.run(self.args(lane="fp4*fp4->f32", shape="check"),
+                         env={"MTL_CAPTURE_ENABLED": "1"})
         self.assertEqual(report["status"], "capture_written_replay_not_verified")
         self.assertEqual(report["packing"], "hi")
+        self.assertEqual(report["packing_attempts"], ["lo", "hi"])
         self.assertEqual(draws[0][1], draws[1][1])
+
+    def test_rate_failure_never_retries_fp4_packing(self):
+        def fail_rate(lane, tile, shape, rng, order, stage=None):
+            ok = stage == "check_shape"
+            return ok, {"ok": ok, "rel_err": 0 if ok else 1,
+                        "stage": stage}, {"kern": "fake", "inputs": [],
+                                           "m": shape[0], "n": shape[2]}
+        self.ls.check_tile.side_effect = fail_rate
+        report = app.run(self.args(lane="fp4*fp4->f32"),
+                         env={"MTL_CAPTURE_ENABLED": "1"})
+        self.assertEqual(report["status"], "wrong")
+        self.assertEqual(report["packing_attempts"], ["lo"])
+        self.assertEqual([c["stage"] for c in report["checks"]],
+                         ["check_shape", "rate_shape"])
+        self.mx.metal.start_capture.assert_not_called()
+
+    def test_f16_check_failure_never_retries_hi(self):
+        self.ls.check_tile.side_effect = lambda lane, tile, shape, rng, order, stage=None: (
+            False, {"ok": False, "rel_err": 2, "stage": stage},
+            {"kern": None})
+        result = app.run(self.args(), env={"MTL_CAPTURE_ENABLED": "1"})
+        self.assertEqual(result["packing_attempts"], ["lo"])
+        self.assertEqual(result["status"], "wrong")
+
+    def test_loop_warmup_converged_but_ramp_is_not_steady(self):
+        samples = [{"offset_s": i * .1, "eval_ms": v, "n": 1}
+                   for i, v in enumerate((2.0, 1.0, 1.0, 1.0))]
+        stable = app.loop_stability(samples, batch=1, window_s=.1, tolerance=.02)
+        self.assertFalse(stable["stable"])
+        self.assertEqual(len(stable["windows"]), 4)
+
+    def test_loop_late_throttling_rejected(self):
+        samples = [{"offset_s": i * .1, "eval_ms": v, "n": 1}
+                   for i, v in enumerate((1.0, 1.0, 1.0, 1.8))]
+        self.assertFalse(app.loop_stability(samples, 1, .1, .02)["stable"])
+        self.assertTrue(app.loop_stability([
+            {"offset_s": i*.1, "eval_ms": 1.0, "n": 1} for i in range(4)],
+            1, .1, .02)["stable"])
+
+    def test_blocked_existing_manifest_exits_two_before_run(self):
+        self.args().output.write_text("old")
+        with patch.object(app, "run") as runner:
+            code = app.main(["--lane", "f16*f16->f32", "--loop", "1",
+                             "--output", str(self.args().output)])
+        self.assertEqual(code, 2)
+        runner.assert_not_called()
+
+    def test_failure_after_trace_creation_preserves_trace_status(self):
+        self.mx.eval.side_effect = None
+        self.mx.metal.start_capture.side_effect = lambda p: Path(p).mkdir()
+        self.ls.call.side_effect = [
+            np.array([1,2,3]), np.array([1,2,3]),
+            np.array([9,9,9])]
+        report = app.run(self.args(), env={"MTL_CAPTURE_ENABLED": "1"})
+        self.assertEqual(report["status"], "failed")
+        self.assertTrue(report["trace_written"])
+        self.assertEqual(report["trace_basename"], "trace.gputrace")
+        self.assertIn("sources", report)
 
     def test_loop_nonconverged_is_diagnostic_not_steady_state(self):
         warm = {"converged": False, "elapsed_s": 1, "raw_batches": []}
