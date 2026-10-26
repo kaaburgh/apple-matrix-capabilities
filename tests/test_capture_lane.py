@@ -268,6 +268,32 @@ class TestLaneRun(unittest.TestCase):
         self.assertEqual(result["packing_attempts"], ["lo"])
         self.assertEqual(result["status"], "wrong")
 
+    def test_converged_warmup_does_not_mask_loop_ramp(self):
+        events = []
+        ts = iter([0, 0, 0, 100000000, 100000000, 200000000,
+                   200000000, 300000000, 300000000, 400000000, 400000000])
+        def fake_warm(*args, **kwargs):
+            events.append("warmup")
+            return {"converged": True, "elapsed_s": .7, "raw_batches": []}
+        def fake_sleep(*args):
+            events.append("idle")
+        with patch.object(app.B, "warmup", side_effect=fake_warm):
+            with patch.object(app.B, "timed_batch",
+                              side_effect=[{"eval_ms": v, "construct_ms": .01}
+                                           for v in (2., 1., 1., 1.)]):
+                with patch.object(app.time, "sleep", side_effect=fake_sleep):
+                    with patch.object(app.time, "perf_counter_ns",
+                                      side_effect=lambda: next(ts)):
+                        report = app.loop_batches(
+                            lambda: None, lambda *args: None, .35, 1,
+                            {"min_s": .5, "max_s": 1.,
+                             "window_s": .1, "tolerance": .02})
+        self.assertFalse(report["steady_state_claim_allowed"])
+        self.assertTrue(report["warmup_converged"])
+        self.assertFalse(report["loop_stability"]["stable"])
+        self.assertIsNone(report["loop"]["median_eval_ms_per_dispatch_stable_only"])
+        self.assertEqual(events, ["idle", "warmup", "idle"])
+
     def test_loop_warmup_converged_but_ramp_is_not_steady(self):
         samples = [{"offset_s": i * .1, "eval_ms": v, "n": 1}
                    for i, v in enumerate((2.0, 1.0, 1.0, 1.0))]
