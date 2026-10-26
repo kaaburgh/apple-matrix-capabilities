@@ -269,15 +269,18 @@ def checked_context(ls, *, lane: str, tile: tuple, shape: tuple, seed: int):
                                        stage="check_shape")
     if not ok:
         raise PhaseFailure("check_shape", ValueError("upstream check_shape failed"))
-    if shape != ls.CHK:
+    if shape != ls.CHK or tile != ls.TILES[0]:
+        # Even the quick CHK diagnostic must test the actual selected tile,
+        # not time a kernel constructed for canonical TILES[0].
+        second_stage = "rate_shape" if shape != ls.CHK else "check_shape_tile"
         del context
         try:
             ok, entry, context = ls.check_tile(lane, tile, shape, rng, "lo",
-                                                stage="rate_shape")
+                                                stage=second_stage)
         except Exception as exc:
-            raise PhaseFailure("rate_shape", exc) from exc
+            raise PhaseFailure(second_stage, exc) from exc
         if not ok:
-            raise PhaseFailure("rate_shape", ValueError("upstream rate_shape failed"))
+            raise PhaseFailure(second_stage, ValueError("target tile correctness failed"))
 
     def factory():
         return ls.call(context["kern"], context["inputs"], context["m"],
