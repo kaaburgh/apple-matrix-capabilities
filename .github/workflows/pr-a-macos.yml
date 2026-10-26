@@ -35,11 +35,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p experiments/ci
+          set +e
           python probes/capture_lane.py --lane 'f16*f16->f32' \
             --shape check --capture experiments/ci/f16.gputrace \
             --output experiments/ci/capture.json \
             > "$RUNNER_TEMP/pr_a_capture_stdout.txt" \
             2> "$RUNNER_TEMP/pr_a_capture_stderr.txt"
+          exit_code=$?
+          set -e
+          if [[ -f experiments/ci/capture.json ]]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("experiments/ci/capture.json").read_text())
+          print("Sanitized Phase A:", {key: report.get(key) for key in
+                ("status", "stage", "error", "mode")})
+          PY
+          else
+            echo "::error::Phase A did not write a structured capture report."
+          fi
+          if [[ "$exit_code" -ne 0 ]]; then
+            echo "::error::Capture failed (raw private diagnostics withheld)."
+            exit 1
+          fi
           python - <<'PY'
           import json
           from pathlib import Path
