@@ -92,11 +92,21 @@ def source_hashes(repo_root: Path) -> dict[str, str]:
 
 
 def capture_once(mx, dispatch, trace_path: Path):
-    """Capture exactly one evaluated invocation; return its result for checking."""
+    """Capture a dispatch on a *fresh* GPU stream and return its evaluated result.
+
+    MLX Metal command encoders preallocate their next MTLCommandBuffer after
+    each commit. Reusing the pre-warmed default stream can therefore commit
+    a command buffer created *before* the capture interval; Metal only traces
+    buffers created and committed within the interval. Always create a new
+    stream AFTER start_capture, then evaluate and synchronize before stopping.
+    """
     mx.metal.start_capture(str(trace_path))
     try:
-        result = dispatch()
-        mx.eval(result)
+        capture_stream = mx.new_stream(mx.gpu)
+        with mx.stream(capture_stream):
+            result = dispatch()
+            mx.eval(result)
+            mx.synchronize(capture_stream)
         return result
     finally:
         mx.metal.stop_capture()
@@ -198,7 +208,9 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
                       expected_kernel_name_contains=(
                           f"amc_{tag}_{shape_tuple[0]}x{shape_tuple[1]}x{shape_tuple[2]}_"
                           f"{mt}_{nt}_{sg}"),
-                      dispatches_requested=1)
+                      dispatches_requested=1,
+                      capture_stream="new_gpu_stream_created_inside_capture",
+                      command_buffers_verified=False)
 
         stage = "check"
         if shape == "rate":
@@ -238,6 +250,8 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
         report["status"] = "capture_written_replay_not_verified"
         report["stage"] = "done"
         report["captured_equals_precapture_dispatch"] = True
+        # File presence + correct output do not establish trace contents.
+        # Inspect command-buffer/dispatch counts with gpudebug or Xcode.
         return report
     except Exception as exc:
         report["status"] = "blocked" if isinstance(exc, PreflightError) else "failed"
