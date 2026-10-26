@@ -73,6 +73,52 @@ jobs:
           print("PR A: capture bundle created; Xcode replay/command contents UNVERIFIED.")
           PY
 
+      - name: Extended float controls and capture-mode smoke (CHK only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_capture () {
+            local label="$1" lane="$2" policy="$3"
+            shift 3
+            set +e
+            MTL_CAPTURE_ENABLED=1 python probes/capture_lane.py \
+              --lane "$lane" --shape check \
+              --capture "experiments/ci/${label}.gputrace" \
+              --output "experiments/ci/${label}.json" "$@" \
+              > "$RUNNER_TEMP/pr_a_extended.stdout" \
+              2> "$RUNNER_TEMP/pr_a_extended.stderr"
+            local exit_code=$?
+            set -e
+            python - "$label" "$policy" "$exit_code" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          label, policy, exit_code = sys.argv[1], sys.argv[2], int(sys.argv[3])
+          path = Path("experiments/ci") / (label + ".json")
+          assert path.exists(), "structured manifest missing for " + label
+          result = json.loads(path.read_text())
+          print("Sanitized extended capture:", {
+              "control": label, "status": result.get("status"),
+              "stage": result.get("stage"), "error": result.get("error")})
+          if policy == "required":
+              assert exit_code == 0, "required capture failed: " + label
+              assert result["status"] == "capture_written_replay_not_verified"
+              assert result["dispatches_requested"] >= 1
+          else:
+              assert result["status"] in (
+                  "capture_written_replay_not_verified", "wrong", "failed", "blocked")
+          PY
+            rm -rf "experiments/ci/${label}.gputrace"
+          }
+          run_capture f32 'f32*f32->f32' required
+          run_capture strict_f32 'strict_f32*f32->f32' required
+          run_capture f16_batch2 'f16*f16->f32' required --batch 2
+          run_capture f16_default 'f16*f16->f32' required --capture-mode default-stream
+          # The hosted GPU may lack low-bit Metal hardware. A structured
+          # unsupported/incorrect result is evidence, not an M5 failure.
+          run_capture e4m3 'e4m3*e4m3->f32' optional
+          run_capture fp4 'fp4*fp4->f32' optional
+
       - name: Uncaptured FP16 live loop (smoke, not a benchmark)
         shell: bash
         run: |
@@ -108,4 +154,5 @@ jobs:
           rm -rf experiments/ci
           rm -f "$RUNNER_TEMP/pr_a_capture_stdout.txt" "$RUNNER_TEMP/pr_a_capture_stderr.txt"
           rm -f "$RUNNER_TEMP/pr_a_loop_stdout.txt" "$RUNNER_TEMP/pr_a_loop_stderr.txt"
+          rm -f "$RUNNER_TEMP/pr_a_extended.stdout" "$RUNNER_TEMP/pr_a_extended.stderr"
           echo "PR A hosted Apple Silicon smoke; no M5 Max performance, Xcode replay, or counter claims." >> "$GITHUB_STEP_SUMMARY"
