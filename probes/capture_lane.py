@@ -272,7 +272,9 @@ def main(argv=None):
         args.batch = 1 if args.capture is not None else 8
     report = run(args)
     try:
-        dest, _ = validate_paths(args.output, args.capture)
+        # A successful capture legitimately created the trace already. On
+        # publication recheck only the JSON destination, never the trace.
+        dest, _ = validate_paths(args.output, None)
         B.store_exclusive_json(dest, report)
     except Exception:
         print("Local manifest could not be written; no evidence published", file=sys.stderr)
