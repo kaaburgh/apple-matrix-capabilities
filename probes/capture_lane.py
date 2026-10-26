@@ -54,6 +54,8 @@ def validate_mode(args, env, ls, trace):
     B.validate_tile_shape(shape, tile)
     if not 1 <= args.batch <= 16 or args.output_budget_mib < 1:
         raise B.BlockedError("batch must be 1..16 and output budget positive")
+    if trace is None and (args.loop is None or not 0 < args.loop <= 600):
+        raise B.BlockedError("live loop must be 0 < seconds <= 600")
     # Preflight environment and hardware checks happen before importing MLX.
     return shape, tile
 
@@ -308,7 +310,8 @@ def run(args, env=None):
                        else "failed"),
             "stage": stage,
             "error": {"type": type(exc).__name__,
-                      "category": A._category(exc)},
+                      "category": ("correctness" if isinstance(exc, WrongResult)
+                                   else A._category(exc))},
             "trace_written": bool(trace is not None and trace.exists()),
             "trace_basename": trace.name if trace is not None else None,
         })
