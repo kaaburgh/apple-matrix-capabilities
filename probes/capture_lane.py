@@ -124,10 +124,34 @@ def capture_batch(mx, factory, trace, batch, mode):
         mx.metal.stop_capture()
 
 
+def loop_stability(samples, batch, window_s, tolerance):
+    """Assess every loop window, including the first ramp and late throttle."""
+    import math
+    import statistics
+    buckets = {}
+    for item in samples:
+        idx = int(item["offset_s"] / window_s)
+        buckets.setdefault(idx, []).append(item)
+    windows = []
+    for idx, group in sorted(buckets.items()):
+        per_call = sum(x["eval_ms"] for x in group) / (batch * len(group))
+        windows.append({"index": idx, "dispatches": batch * len(group),
+                        "mean_eval_ms_per_dispatch": per_call})
+    means = [x["mean_eval_ms_per_dispatch"] for x in windows]
+    contiguous = (len(windows) >= 3 and
+                  [x["index"] for x in windows] == list(range(windows[-1]["index"] + 1)))
+    stable = bool(contiguous and all(math.isfinite(x) and x > 0 for x in means)
+                  and (max(means) - min(means)) / statistics.median(means) <= tolerance)
+    return {"stable": stable, "windows": windows,
+            "criterion": "all_windows_range_over_median", "tolerance": tolerance,
+            "contiguous": contiguous}
+
+
 def loop_batches(factory, synchronize, seconds, batch, warmup_config):
-    """Timed, uncaptured batches bracketed by idle gaps for Instruments."""
-    warm = B.warmup(factory, synchronize, n=batch, **warmup_config)
+    """Gap -> uninterrupted warmup + loop -> gap for Instruments."""
+    import statistics
     time.sleep(.25)
+    warm = B.warmup(factory, synchronize, n=batch, **warmup_config)
     start = time.perf_counter_ns()
     samples = []
     while (time.perf_counter_ns() - start) / 1e9 < seconds:
@@ -136,10 +160,14 @@ def loop_batches(factory, synchronize, seconds, batch, warmup_config):
                         **B.timed_batch(factory, synchronize, batch)})
     elapsed = (time.perf_counter_ns() - start) / 1e9
     time.sleep(.25)
+    stability = loop_stability(samples, batch, warmup_config["window_s"],
+                               warmup_config["tolerance"])
+    converged = bool(warm["converged"] and stability["stable"])
     eval_ms = sum(r["eval_ms"] for r in samples)
     return {
-        "warmup": warm, "converged": bool(warm["converged"]),
-        "steady_state_claim_allowed": bool(warm["converged"]),
+        "warmup": warm, "loop_stability": stability,
+        "warmup_converged": bool(warm["converged"]), "converged": converged,
+        "steady_state_claim_allowed": converged,
         "loop": {
             "seconds_requested": seconds, "seconds_host_elapsed": elapsed,
             "batch": batch, "batches": len(samples),
@@ -150,8 +178,12 @@ def loop_batches(factory, synchronize, seconds, batch, warmup_config):
             "gpu_idle_fraction": None,
             "gpu_idle_fraction_source": "not_measured_instruments_required",
             "neural_accelerator_utilization": None,
-            "host_eval_dispatches_per_s": (
-                1000 * batch * len(samples) / eval_ms if eval_ms > 0 else None),
+            "median_eval_ms_per_dispatch_stable_only": (
+                statistics.median(s["eval_ms"] / batch for s in samples)
+                if converged and samples else None),
+            "phase0b_per_n_comparator": "per_n[N].eval_ms.median / N",
+            "tn_slope_b_ms_per_dispatch": None,
+            "tn_slope_requires_separate_phase0b_and_gpu_interval": True,
         },
     }
 
