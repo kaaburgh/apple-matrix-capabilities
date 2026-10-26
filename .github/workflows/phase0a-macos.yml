@@ -6,6 +6,9 @@ on:
       - .github/workflows/phase0a-macos.yml
       - tools/phase0a_capture_spike.py
       - docs/lowbit-research/PHASE-0A-SPIKE.md
+      - probes/lane_sweep.py
+      - probes/_common.py
+      - tests/test_phase0a_spike.py
   workflow_dispatch:
 
 permissions:
@@ -21,7 +24,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-26, xcode-27]
+        include:
+          - runner: macos-26
+            expect_ready: false
+          - runner: xcode-27
+            expect_ready: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     steps:
@@ -39,6 +46,10 @@ jobs:
           blocked() {
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "reason=$1" >> "$GITHUB_OUTPUT"
+            if [[ "${{ matrix.expect_ready }}" == "true" ]]; then
+              echo "::error::Expected-ready runner ${{ matrix.runner }} lost required prerequisite: $1"
+              exit 1
+            fi
             echo "::notice::Phase 0a BLOCKED on ${{ matrix.runner }}: $1"
             exit 0
           }
@@ -121,32 +132,55 @@ jobs:
         run: |
           set -euo pipefail
           trace="$RUNNER_TEMP/phase0a-${{ matrix.runner }}.gputrace"
-          if ! python tools/phase0a_capture_spike.py --shape check --trace "$trace" \
+          set +e
+          python tools/phase0a_capture_spike.py --shape check --trace "$trace" \
                 > "$RUNNER_TEMP/amc_capture_report.json" \
-                2> "$RUNNER_TEMP/amc_capture_errors.txt"; then
-            echo "::error::FP16 capture failed; no raw trace/log will be published."
-            exit 1
-          fi
-          if [[ ! -e "$trace" ]]; then
-            echo "::error::Capture reported success but .gputrace does not exist."
-            exit 1
-          fi
-          python - <<'PY'
-          import json
-          import os
+                2> "$RUNNER_TEMP/amc_capture_errors.txt"
+          code=$?
+          set -e
+
+          # Print only sanitized structured fields; raw compiler stderr
+          # and GPU bundles must never leave this runner.
+          if [[ -s "$RUNNER_TEMP/amc_capture_report.json" ]]; then
+            python - <<'PY'
+          import json, os
           from pathlib import Path
           report = json.loads((Path(os.environ["RUNNER_TEMP"]) /
                                "amc_capture_report.json").read_text())
-          assert report["status"] == "capture_written_replay_not_verified"
-          assert report["lane"] == "f16*f16->f32"
-          assert report["dispatches_requested"] == 1
-          assert report["shape_choice"] == "check"
-          assert report["captured_output_equal"] is True
-          assert report["trace_replayed_in_xcode"] is False
-          assert report["counters_collected"] is False
+          assert report["status"] in ("blocked", "failed", "capture_written_replay_not_verified")
+          print("Phase 0a diagnostic:", json.dumps({
+              key: report.get(key) for key in
+              ("status", "stage", "error", "os", "toolchain", "metal_cli")
+          }, sort_keys=True))
           print("Metal device architecture:", report.get("device", {}).get("architecture", "unknown"))
-          print("FP16 check-shape .gputrace written; Xcode replay and NA counters NOT verified.")
+          if report["status"] == "capture_written_replay_not_verified":
+              assert report["shape_choice"] == "check"
+              assert report["lane"] == "f16*f16->f32"
+              assert report["dispatches_requested"] == 1
+              assert report["captured_equals_precapture_dispatch"] is True
+              assert report["trace_replayed_in_xcode"] is False
+              assert report["counters_collected"] is False
           PY
+          else
+            echo "::error::Sanitized diagnostic report missing."
+            exit 1
+          fi
+
+          if [[ "$code" -eq 0 && -e "$trace" ]]; then
+            echo "state=trace_written" >> "$GITHUB_OUTPUT"
+            echo "FP16 CHK .gputrace written; replay/NA counters NOT verified."
+          elif [[ "$code" -eq 2 ]]; then
+            echo "state=blocked" >> "$GITHUB_OUTPUT"
+            if [[ "${{ matrix.expect_ready }}" == "true" ]]; then
+              echo "::error::Capture preflight BLOCKED on expected-ready runner."
+              exit 1
+            fi
+            echo "::notice::Capture blocked at spike-level preflight."
+          else
+            echo "state=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::FP16 capture failed or trace missing (raw diagnostics withheld)."
+            exit 1
+          fi
 
       - name: Write diagnostic outcome and delete local traces
         if: always()
@@ -155,7 +189,8 @@ jobs:
           set -euo pipefail
           ready="${{ steps.environment.outputs.ready }}"
           reason="${{ steps.environment.outputs.reason }}"
-          capture="${{ steps.capture.outcome }}"
+          capture="${{ steps.capture.outputs.state }}"
+          capture_outcome="${{ steps.capture.outcome }}"
           {
             echo "## Phase 0a Metal diagnostic — ${{ matrix.runner }}"
             echo
@@ -164,9 +199,11 @@ jobs:
             echo "| Prerequisites | $reason |"
             if [[ "$ready" != "true" ]]; then
               echo "| GPU capture | NOT RUN (environment blocked) |"
-            elif [[ "$capture" == "success" ]]; then
+            elif [[ "$capture" == "trace_written" ]]; then
               echo "| GPU capture | TRACE WRITTEN; Xcode replay NOT VERIFIED |"
-            elif [[ "$capture" == "failure" ]]; then
+            elif [[ "$capture" == "blocked" ]]; then
+              echo "| GPU capture | BLOCKED at spike preflight |"
+            elif [[ "$capture" == "failed" || "$capture_outcome" == "failure" ]]; then
               echo "| GPU capture | FAILED (investigate) |"
             else
               echo "| GPU capture | NOT RUN (dependency/setup failure) |"
