@@ -248,6 +248,22 @@ class TestLaneRun(unittest.TestCase):
         self.assertEqual(report["loop"]["gpu_idle_fraction"], None)
         json.dumps(report, allow_nan=False)
 
+    def test_main_publishes_manifest_after_capture_created_trace(self):
+        trace = self.exp / "new-trace.gputrace"
+        output = self.exp / "new-manifest.json"
+        def successful_capture(args):
+            trace.mkdir()
+            return {"status": "capture_written_replay_not_verified",
+                    "mode": "capture", "not_upstream_receipt": True}
+        with patch.object(app, "run", side_effect=successful_capture):
+            rc = app.main(["--lane", "f16*f16->f32",
+                           "--capture", str(trace),
+                           "--output", str(output)])
+        self.assertEqual(rc, 0)
+        self.assertTrue(trace.is_dir())
+        self.assertEqual(json.loads(output.read_text())["status"],
+                         "capture_written_replay_not_verified")
+
     def test_manifest_writer_does_not_overwrite(self):
         report = {"status":"blocked"}
         dest = self.exp / "result.json"
