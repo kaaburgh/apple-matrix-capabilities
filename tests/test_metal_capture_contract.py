@@ -12,6 +12,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "probes") not in sys.path:
+    sys.path.insert(0, str(ROOT / "probes"))
 SPEC = importlib.util.spec_from_file_location(
     "phase0a_capture_spike", ROOT / "tools/phase0a_capture_spike.py")
 spike = importlib.util.module_from_spec(SPEC)
