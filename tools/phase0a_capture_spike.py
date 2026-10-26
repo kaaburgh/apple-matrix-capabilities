@@ -32,7 +32,14 @@ def _enabled(value: str | None) -> bool:
 def environment() -> dict[str, str]:
     names = ("MTL_CAPTURE_ENABLED", "MTL_SHADER_VALIDATION", "MTL_DEBUG_LAYER",
              "METAL_DEVICE_WRAPPER_TYPE", "MLX_METAL_JIT", "MLX_ENABLE_TF32")
-    return {name: os.environ.get(name, "unset") for name in names}
+    # A value like METAL_DEVICE_WRAPPER_TYPE may be an absolute path.
+    # Emit only controlled switch values, never arbitrary environment text.
+    safe = {"0", "1", "false", "true", "off", "on", "unset"}
+    values = {}
+    for name in names:
+        value = os.environ.get(name, "unset").strip().lower()
+        values[name] = value if value in safe else "set"
+    return values
 
 
 def validate_preflight(system: str, architecture: str,

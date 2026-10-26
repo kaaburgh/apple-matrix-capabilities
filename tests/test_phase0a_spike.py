@@ -59,6 +59,16 @@ class TestCaptureSpikePreflight(unittest.TestCase):
                 spike.validate_preflight("Darwin", "arm64", "1",
                                          Path(td) / "absent/t.gputrace")
 
+    def test_environment_redacts_path_like_values(self):
+        with patch.dict(os.environ, {
+            "METAL_DEVICE_WRAPPER_TYPE": "/Users/private/metal/debug",
+            "MLX_ENABLE_TF32": "1",
+        }):
+            env = spike.environment()
+        self.assertEqual(env["METAL_DEVICE_WRAPPER_TYPE"], "set")
+        self.assertEqual(env["MLX_ENABLE_TF32"], "1")
+        self.assertNotIn("private", str(env))
+
     def test_synthetic_success(self):
         with tempfile.TemporaryDirectory() as td:
             with patch.dict(os.environ, {"MTL_SHADER_VALIDATION": ""}):
