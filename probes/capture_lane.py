@@ -297,14 +297,22 @@ def run(args, env=None):
                                   else "observed_nonconverged_diagnostic")
         return manifest
     except Exception as exc:
-        return {
-            "status": ("blocked" if isinstance(
-                exc, (B.BlockedError, A.PreflightError, ImportError)) else "failed"),
-            "stage": stage, "error": {"type": type(exc).__name__,
-                                     "category": A._category(exc)},
-            "not_upstream_receipt": True,
-            "mode": "capture" if args.capture is not None else "live_loop",
-        }
+        if not isinstance(exc, (B.BlockedError, A.PreflightError)):
+            # Private stderr only, never copy exception text into the manifest.
+            traceback.print_exception(type(exc), exc, exc.__traceback__,
+                                      file=sys.stderr)
+        partial.update({
+            "status": ("wrong" if isinstance(exc, WrongResult)
+                       else "blocked" if isinstance(
+                           exc, (B.BlockedError, A.PreflightError, ImportError))
+                       else "failed"),
+            "stage": stage,
+            "error": {"type": type(exc).__name__,
+                      "category": A._category(exc)},
+            "trace_written": bool(trace is not None and trace.exists()),
+            "trace_basename": trace.name if trace is not None else None,
+        })
+        return partial
 
 
 def argument_parser():
@@ -331,11 +339,17 @@ def main(argv=None):
     args = argument_parser().parse_args(argv)
     if args.batch is None:
         args.batch = 1 if args.capture is not None else 8
+    try:
+        # An invalid output must be blocked before GPU work and cannot be
+        # used to publish its own structured diagnostic JSON.
+        dest, _ = validate_paths(args.output, None)
+    except B.BlockedError:
+        print("Blocked: output exists, parent missing, or outside experiments/",
+              file=sys.stderr)
+        return 2
     report = run(args)
     try:
-        # A successful capture legitimately created the trace already. On
-        # publication recheck only the JSON destination, never the trace.
-        dest, _ = validate_paths(args.output, None)
+        # Trace existence is expected after a successful capture.
         B.store_exclusive_json(dest, report)
     except Exception:
         print("Local manifest could not be written; no evidence published", file=sys.stderr)
@@ -343,7 +357,7 @@ def main(argv=None):
     print(json.dumps({"status": report["status"], "mode": report["mode"],
                       "manifest_name": dest.name}, sort_keys=True))
     return (2 if report["status"] == "blocked"
-            else 1 if report["status"] == "failed" else 0)
+            else 1 if report["status"] in ("failed", "wrong") else 0)
 
 
 if __name__ == "__main__":
