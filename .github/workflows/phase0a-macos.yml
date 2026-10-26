@@ -5,6 +5,8 @@ on:
     paths:
       - .github/workflows/phase0a-macos.yml
       - tools/phase0a_capture_spike.py
+      - tools/inspect_gpu_trace.py
+      - tests/test_inspect_gpu_trace.py
       - docs/lowbit-research/PHASE-0A-SPIKE.md
       - probes/lane_sweep.py
       - probes/_common.py
@@ -182,6 +184,26 @@ jobs:
             exit 1
           fi
 
+      - name: Experimental trace-size diagnostic (not a validation gate)
+        id: inspect
+        if: steps.capture.outputs.state == 'trace_written'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No real empty/nonempty gpudebug output fixtures exist yet.
+          # Never treat trace bytes or guessed gpudebug parsing as a verdict.
+          set +e
+          python tools/inspect_gpu_trace.py \
+            --trace "$RUNNER_TEMP/phase0a-${{ matrix.runner }}.gputrace"
+          code=$?
+          set -e
+          if [[ "$code" -ne 2 ]]; then
+            echo "::error::Unexpected trace-diagnostic exit status."
+            exit 1
+          fi
+          echo "state=unverified" >> "$GITHUB_OUTPUT"
+          echo "::notice::Trace size recorded as diagnostic only; Xcode command buffers and dispatches remain unverified."
+
       - name: Write diagnostic outcome and delete local traces
         if: always()
         shell: bash
@@ -191,6 +213,7 @@ jobs:
           reason="${{ steps.environment.outputs.reason }}"
           capture="${{ steps.capture.outputs.state }}"
           capture_outcome="${{ steps.capture.outcome }}"
+          inspected="${{ steps.inspect.outputs.state }}"
           {
             echo "## Phase 0a Metal diagnostic — ${{ matrix.runner }}"
             echo
@@ -208,6 +231,8 @@ jobs:
             else
               echo "| GPU capture | NOT RUN (dependency/setup failure) |"
             fi
+            echo
+            echo "| Trace-content verification | ${inspected:-NOT RUN/UNVERIFIED} (manual Xcode required) |"
             echo
             echo "No M5 Max Neural Accelerator counters, ISA or steady-state rate claims."
             echo "Raw .gputrace bundles and runner-local diagnostic logs are not uploaded."

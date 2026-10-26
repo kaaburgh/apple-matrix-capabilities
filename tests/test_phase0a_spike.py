@@ -1,6 +1,7 @@
 """CPU-only contract tests for Phase 0a, independent of working directory."""
 
 import importlib.util
+from contextlib import nullcontext
 import os
 from pathlib import Path
 import sys
@@ -78,20 +79,77 @@ class TestCaptureSpikePreflight(unittest.TestCase):
 class TestCaptureLifecycle(unittest.TestCase):
     def test_returns_exactly_one_result_and_stops(self):
         mx = Mock()
+        mx.gpu = "gpu"
+        mx.new_stream.return_value = "fresh_gpu_stream"
+        mx.stream.side_effect = lambda stream: nullcontext()
         dispatch = Mock(return_value="result")
         result = spike.capture_once(mx, dispatch, Path("t.gputrace"))
         self.assertEqual(result, "result")
         mx.metal.start_capture.assert_called_once_with("t.gputrace")
         dispatch.assert_called_once()
         mx.eval.assert_called_once_with("result")
+        mx.new_stream.assert_called_once_with("gpu")
+        mx.stream.assert_called_once_with("fresh_gpu_stream")
+        mx.synchronize.assert_not_called()
         mx.metal.stop_capture.assert_called_once()
 
     def test_stop_on_eval_failure(self):
         mx = Mock()
+        mx.gpu = "gpu"
+        mx.stream.side_effect = lambda stream: nullcontext()
         mx.eval.side_effect = RuntimeError("synthetic")
         with self.assertRaisesRegex(RuntimeError, "synthetic"):
             spike.capture_once(mx, lambda: "data", Path("t.gputrace"))
         mx.metal.stop_capture.assert_called_once()
+
+    def test_default_stream_fallback_flushes_before_dispatch(self):
+        mx = Mock()
+        mx.gpu = "gpu"
+        mx.default_stream.return_value = "default"
+        sequence = []
+        mx.metal.start_capture.side_effect = lambda _: sequence.append("start")
+        mx.synchronize.side_effect = lambda _: sequence.append("flush")
+        mx.eval.side_effect = lambda _: sequence.append("eval")
+        mx.metal.stop_capture.side_effect = lambda: sequence.append("stop")
+        result = spike.capture_once(
+            mx, lambda: (sequence.append("dispatch") or "data"),
+            Path("t.gputrace"), mode="default-stream")
+        self.assertEqual(result, "data")
+        self.assertEqual(sequence, ["start", "flush", "dispatch", "eval", "stop"])
+        mx.new_stream.assert_not_called()
+
+    def test_stop_on_fallback_flush_failure(self):
+        mx = Mock()
+        mx.gpu = "gpu"
+        mx.synchronize.side_effect = RuntimeError("flush failed")
+        with self.assertRaisesRegex(RuntimeError, "flush failed"):
+            spike.capture_once(mx, lambda: "data", Path("t.gputrace"),
+                               mode="default-stream")
+        mx.metal.stop_capture.assert_called_once()
+
+    def test_invalid_mode_does_not_start_capture(self):
+        mx = Mock()
+        with self.assertRaises(ValueError):
+            spike.capture_once(mx, lambda: "data", Path("t.gputrace"),
+                               mode="unknown")
+        mx.metal.start_capture.assert_not_called()
+
+    def test_stream_created_after_capture_started(self):
+        order = []
+        mx = Mock()
+        mx.gpu = "gpu"
+        mx.metal.start_capture.side_effect = lambda _: order.append("start")
+        mx.new_stream.side_effect = lambda _: (order.append("new_stream") or "fresh")
+        mx.stream.side_effect = lambda _: nullcontext()
+        def dispatch():
+            order.append("dispatch")
+            return "array"
+        mx.eval.side_effect = lambda _: order.append("eval")
+        mx.metal.stop_capture.side_effect = lambda: order.append("stop")
+        spike.capture_once(mx, dispatch, Path("t.gputrace"))
+        self.assertEqual(order, ["start", "new_stream", "dispatch",
+                                 "eval", "stop"])
+        mx.synchronize.assert_not_called()
 
     def test_does_not_stop_when_start_fails(self):
         mx = Mock()
@@ -110,6 +168,11 @@ class TestRunContract(unittest.TestCase):
         self.mx = types.ModuleType("mlx.core")
         self.mx.metal = Mock()
         self.mx.eval = Mock()
+        self.mx.gpu = "gpu"
+        self.mx.new_stream = Mock(return_value="fresh_gpu_stream")
+        self.mx.default_stream = Mock(return_value="default_stream")
+        self.mx.stream = Mock(side_effect=lambda stream: nullcontext())
+        self.mx.synchronize = Mock()
         self.mx.clear_cache = Mock()
         self.mx.device_info = Mock(return_value={"device_name": "Mock GPU"})
         mlx = types.ModuleType("mlx")
@@ -188,6 +251,9 @@ class TestRunContract(unittest.TestCase):
         self.assertEqual(report["expected_kernel_name_contains"],
                          "amc_f16_f16__f32_64x1024x256_64_128_4")
         self.assertFalse(report["trace_replayed_in_xcode"])
+        self.assertFalse(report["command_buffers_verified"])
+        self.assertEqual(report["capture_mode"], "fresh-stream")
+        self.assertEqual(report["expected_capture_command_buffers"], 1)
         self.assertFalse(report["counters_collected"])
         self.assertNotIn("converged", report)
         self.mx.metal.start_capture.assert_called_once()
@@ -197,6 +263,13 @@ class TestRunContract(unittest.TestCase):
             report = spike.run(self.trace, "check")
         self.assertEqual(report["status"], "capture_written_replay_not_verified")
         self.assertEqual(report["metal_cli"], "missing")
+
+    def test_fallback_mode_is_recorded(self):
+        report = spike.run(self.trace, "check", capture_mode="default-stream")
+        self.assertEqual(report["status"], "capture_written_replay_not_verified")
+        self.assertEqual(report["capture_mode"], "default-stream")
+        self.mx.default_stream.assert_called_once()
+        self.mx.synchronize.assert_called_once()
 
     def test_missing_trace_is_failed_not_success(self):
         self.mx.metal.start_capture.side_effect = None
