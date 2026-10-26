@@ -36,7 +36,7 @@ jobs:
           mkdir -p experiments/ci
           set +e
           python tools/phase0b_baseline.py --shape check --tile-a 0 \
-            --reps 3 --min-warmup-s 0.2 --max-warmup-s 0.8 \
+            --tile-b 1 --upstream-replica --reps 3 --min-warmup-s 0.2 --max-warmup-s 0.8 \
             --window-s 0.1 --output-budget-mib 64 \
             --output experiments/ci/phase0b-check.json \
             > "$RUNNER_TEMP/phase0b_stdout.txt" \
@@ -59,6 +59,13 @@ jobs:
               assert len(report["batch_timing"]["per_repetition_fits"]) == 3
               assert report["batch_timing"]["chronological"]
               assert report["warmup"]["raw_batches"]
+              assert report["upstream_protocol_replica"] is not None
+              assert len(report["upstream_protocol_replica"]["samples_ms"]) == 5
+              assert report["tile_b"] == [64, 64, 2]
+              assert report["matched_tile_control"]["A"]["eval_ms"]["samples_ms"]
+              assert report["matched_tile_control"]["B"]["eval_ms"]["samples_ms"]
+              assert report["warmup_b"]["raw_batches"]
+              assert report["batch_timing"]["b_repetition_distribution"]["median_by_order_ms_per_dispatch"]
               assert report["batch_timing"]["timing_mode"] == (
                   "construct_lazy_graph_outside_timer_then_time_mx_eval_and_sync")
               print("Device architecture:", report.get("device", {}).get("architecture", "unknown"))
@@ -80,7 +87,7 @@ jobs:
             echo "## Phase 0b CHK-only smoke"
             echo
             echo "Runner: hosted paravirtual Metal (NOT M5 Max)."
-            echo "Job outcome: \${{ steps.smoke.outcome }}."
+            echo "Job outcome: ${{ steps.smoke.outcome }}."
             echo "No GPU rates, raw logs, result JSON or traces are uploaded."
             echo "M5 Max RATE baseline and counter evidence remain uncollected."
           } >> "$GITHUB_STEP_SUMMARY"

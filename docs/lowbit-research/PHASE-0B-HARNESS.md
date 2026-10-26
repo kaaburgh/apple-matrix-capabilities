@@ -26,14 +26,27 @@ source .venv/bin/activate
 python -m pip install 'mlx==0.32.3' 'numpy>=2,<3'
 mkdir -p experiments/m5-max
 
-# Full uncaptured FP16 rate-shape baseline:
-python tools/phase0b_baseline.py \
-  --shape rate --output experiments/m5-max/fp16-rate-001.json
+# 1. Ramp reproduction: upstream 5-sample protocol followed by convergence
+#    and T(N). Run this FIRST after the correctness check.
+python tools/phase0b_baseline.py --shape rate --upstream-replica \
+  --output experiments/m5-max/fp16-rate-replica-001.json
 
-# Optional same-lane, alternate-tile A/B control (both validated):
+# Allow machine to cool/settle before the next run.
+# 2. Clean baseline without the upstream replica's extra GPU warm-up.
 python tools/phase0b_baseline.py --shape rate \
-  --tile-a 0 --tile-b 2 \
-  --output experiments/m5-max/fp16-tiles-001.json
+  --output experiments/m5-max/fp16-rate-001.json
+
+# Allow machine to cool/settle again.
+# 3. Phase 2 same-lane, matched-precision tile contrast (a):
+#    64x64x2 vs 64x32x4.
+python tools/phase0b_baseline.py --shape rate \
+  --tile-a 1 --tile-b 3 \
+  --output experiments/m5-max/fp16-tiles-1v3-001.json
+
+# Optional: compare 64x64x2 against 128x128x8 (both valid at RATE).
+python tools/phase0b_baseline.py --shape rate \
+  --tile-a 1 --tile-b 4 \
+  --output experiments/m5-max/fp16-tiles-1v4-001.json
 
 # Fast protocol smoke test only; NOT a representative NA benchmark:
 python tools/phase0b_baseline.py --shape check \
@@ -61,10 +74,13 @@ instrumentation is rejected before benchmarking.
   isolated GPU latency); kernel scheduling/overlap and queue overhead may
   affect both. MLX command-buffer limits (`MLX_MAX_OPS_PER_BUFFER` and `MLX_MAX_MB_PER_BUFFER`) are recorded and may cause discontinuities.
 - **Order:** 7 repetitions by default, alternating ascending/descending
-  batch sizes. Optional A/B tile test alternates A–B and B–A per
+  batch sizes. Each per-repetition slope records `order=asc|desc`;
+  the results also include median `b` for each order and the desc-minus-asc
+  difference, so within-run drift can be spotted. Optional A/B tile test
+  alternates A–B and B–A per
   repetition and provides distributions/medians and time-stamped chronological data.
   A/B uses the **same lane and shape**, varying only tile geometry.
-- **Optional upstream replica:** `--upstream-replica` runs Precisit's own `time_tile(ctx, tile, reps=5, warmups=2)` *immediately after RATE correctness* to capture first-sample behavior. It changes the subsequent warm-up initial state, so compare replica-on and replica-off runs separately.
+- **Upstream ramp replica (first recommended run):** `--upstream-replica` runs Precisit's own `time_tile(ctx, tile, reps=5, warmups=2)` *immediately after RATE correctness* to capture first-sample behavior. It changes the subsequent warm-up initial state, so compare replica-on and replica-off runs separately. Give the GPU time to return to comparable conditions between runs.
 - **Nonconvergence:** results remain in local JSON and carry
   `steady_state_claim_allowed=false`; neither the rate nor tile choice
   should be published as a steady-state finding.

@@ -106,6 +106,16 @@ class TestGuardsAndStatistics(unittest.TestCase):
             result = mod.measure_tn(lambda: None, lambda *xs: None,
                                     [1, 2, 4, 8, 16], repetitions=7)
         self.assertEqual(len(result["per_repetition_fits"]), 7)
+        self.assertEqual([r["order"] for r in result["per_repetition_fits"]],
+                         ["asc", "desc", "asc", "desc", "asc", "desc", "asc"])
+        self.assertEqual(result["b_repetition_distribution"]["repetitions_by_order"],
+                         {"asc": 4, "desc": 3})
+        self.assertAlmostEqual(
+            result["b_repetition_distribution"]["median_by_order_ms_per_dispatch"]["asc"], .75)
+        self.assertAlmostEqual(
+            result["b_repetition_distribution"]["median_by_order_ms_per_dispatch"]["desc"], .75)
+        self.assertAlmostEqual(
+            result["b_repetition_distribution"]["order_gap_desc_minus_asc_ms_per_dispatch"], 0.0)
         self.assertAlmostEqual(
             result["b_repetition_distribution"]["median_ms_per_dispatch"], .75)
         self.assertAlmostEqual(
@@ -114,6 +124,21 @@ class TestGuardsAndStatistics(unittest.TestCase):
         self.assertTrue(all("offset_s" in x for x in result["chronological"]))
         self.assertEqual([x["n"] for x in result["chronological"][:10]],
                          [1, 2, 4, 8, 16, 16, 8, 4, 2, 1])
+
+    def test_per_repeat_order_gap_detects_scripted_drift(self):
+        count = [0]
+        def observation(_, __, n):
+            rep = count[0] // 5
+            count[0] += 1
+            slope = 1.0 if rep % 2 == 0 else 2.0
+            return {"eval_ms": 3.0 + slope*n, "construct_ms": 0.25*n}
+        with patch.object(mod, "timed_batch", side_effect=observation):
+            result = mod.measure_tn(lambda: None, lambda *xs: None,
+                                    [1, 2, 4, 8, 16], repetitions=6)
+        distribution = result["b_repetition_distribution"]
+        self.assertAlmostEqual(distribution["median_by_order_ms_per_dispatch"]["asc"], 1.0)
+        self.assertAlmostEqual(distribution["median_by_order_ms_per_dispatch"]["desc"], 2.0)
+        self.assertAlmostEqual(distribution["order_gap_desc_minus_asc_ms_per_dispatch"], 1.0)
 
     def test_interleaved_abba_tracks_evaluation_and_construction(self):
         def a():

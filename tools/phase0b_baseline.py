@@ -202,9 +202,20 @@ def measure_tn(factory, sync, ns: list[int], repetitions: int):
             chronological.append({"rep": rep, "n": n, "offset_s": offset, **obs})
             row.append((n, obs["eval_ms"]))
         fit = fit_tn(row)
-        per_repetition.append({"rep": rep, "a_ms": fit["a_effective_fixed_ms"],
+        per_repetition.append({"rep": rep,
+                               "order": "asc" if rep % 2 == 0 else "desc",
+                               "a_ms": fit["a_effective_fixed_ms"],
                                "b_ms_per_dispatch": fit["b_back_to_back_ms_per_dispatch"]})
     slopes = sorted(x["b_ms_per_dispatch"] for x in per_repetition)
+    by_order = {
+        direction: [f["b_ms_per_dispatch"] for f in per_repetition
+                    if f["order"] == direction]
+        for direction in ("asc", "desc")
+    }
+    medians_by_order = {
+        direction: statistics.median(values)
+        for direction, values in by_order.items() if values
+    }
     all_samples = [(r["n"], r["eval_ms"]) for r in chronological]
     return {
         "per_n": {str(n): {k: data_summary(v) for k, v in sample.items()}
@@ -214,12 +225,19 @@ def measure_tn(factory, sync, ns: list[int], repetitions: int):
         "per_repetition_fits": per_repetition,
         "b_repetition_distribution": {
             "median_ms_per_dispatch": statistics.median(slopes),
+            "median_by_order_ms_per_dispatch": medians_by_order,
+            "repetitions_by_order": {direction: len(values)
+                                     for direction, values in by_order.items()},
+            "order_gap_desc_minus_asc_ms_per_dispatch": (
+                medians_by_order["desc"] - medians_by_order["asc"]
+                if len(medians_by_order) == 2 else None),
             "min_ms_per_dispatch": min(slopes),
             "max_ms_per_dispatch": max(slopes),
             "p025_p975_descriptive_ms": [quantile_sorted(slopes, .025),
                                          quantile_sorted(slopes, .975)],
             "warning": "Percentiles are descriptive across repeats, NOT a "
-                       "coverage-calibrated confidence interval.",
+                       "coverage-calibrated confidence interval. Asc/desc "
+                       "differences may reveal drift rather than independent noise.",
         },
         "timing_mode": "construct_lazy_graph_outside_timer_then_time_mx_eval_and_sync",
     }
