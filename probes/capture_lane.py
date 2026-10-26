@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import sys
 import time
+import traceback
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -53,15 +54,7 @@ def validate_mode(args, env, ls, trace):
     B.validate_tile_shape(shape, tile)
     if not 1 <= args.batch <= 16 or args.output_budget_mib < 1:
         raise B.BlockedError("batch must be 1..16 and output budget positive")
-    if trace is not None:
-        A.validate_preflight(platform.system(), platform.machine(),
-                             env.get("MTL_CAPTURE_ENABLED"), trace)
-    else:
-        if args.loop is None or not 0 < args.loop <= 600:
-            raise B.BlockedError("loop duration must be 0 < seconds <= 600")
-        B.validate_timing_env(env)
-        if platform.system() != "Darwin" or platform.machine() not in ("arm64", "aarch64"):
-            raise B.BlockedError("Apple Silicon Mac required")
+    # Preflight environment and hardware checks happen before importing MLX.
     return shape, tile
 
 
@@ -208,7 +201,21 @@ def run(args, env=None):
     if env is None:
         env = os.environ
     stage = "preflight"
+    partial = {
+        "not_upstream_receipt": True,
+        "mode": "capture" if args.capture is not None else "live_loop",
+        "lane": args.lane, "shape_choice": args.shape,
+        "tile_index": args.tile, "batch": args.batch,
+        "capture_mode": args.capture_mode if args.capture is not None else None,
+        "environment": B.safe_environment(env), "checks": [],
+        "packing_attempts": [], "failed_packing_attempts": [],
+    }
+    trace = None
     try:
+        partial["sources"] = {
+            path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+            for path in SOURCES
+        }
         dest, trace = validate_paths(args.output, args.capture)
         if trace is not None:
             A.validate_preflight(platform.system(), platform.machine(),
@@ -230,20 +237,26 @@ def run(args, env=None):
         xcode = A.xcode_version() if trace else "not_required"
         cli = A.metal_toolchain() if trace else "not_checked"
         stage = "correctness"
-        ctx, checks = checked_context(ls, np, args.lane, tile, shape)
+        partial.update({
+            "shape": list(shape), "tile": list(tile),
+            "relaxed_precision": bool(ls.lane_relaxed(args.lane)),
+            "lane_definition": list(ls.LANES[args.lane]),
+            "lane_seed_index": ls.LANE_INDEX[args.lane],
+        })
+        ctx, checks = checked_context(ls, np, args.lane, tile, shape, partial)
         factory = lambda: ls.call(ctx["kern"], ctx["inputs"], ctx["m"], ctx["n"], tile)
         tag = "".join(c if c.isalnum() else "_" for c in args.lane)
         expected = f"amc_{tag}_{shape[0]}x{shape[1]}x{shape[2]}_{tile[0]}_{tile[1]}_{tile[2]}"
         stage = "provenance"
         manifest = A._machine_metadata(mx, ls, ROOT)
-        manifest["sources"] = {
-            p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in SOURCES}
+        manifest["sources"] = partial["sources"]
         manifest.update({
             "protocol": "pr-a-float-capture-loop-v1", "not_upstream_receipt": True,
             "mode": "capture" if trace else "live_loop",
             "lane": args.lane, "shape": list(shape), "tile": list(tile),
             "packing": checks["packing"], "checks": checks["checks"],
-            "failed_packing_attempts": checks["failed_orders"],
+            "failed_packing_attempts": checks["failed_packing_attempts"],
+            "packing_attempts": checks["packing_attempts"],
             "lane_seed_index": ls.LANE_INDEX[args.lane],
             "lane_definition": list(ls.LANES[args.lane]),
             "relaxed_precision": bool(ls.lane_relaxed(args.lane)),
