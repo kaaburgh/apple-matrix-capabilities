@@ -157,3 +157,7 @@ We can reproducibly run and validate selected original lanes without changing Pr
 - [Third-round review: experimental lane receipt validation, FP32 calibration, provenance, CI tests and SKU](https://github.com/kaaburgh/apple-matrix-capabilities/issues/1#issuecomment-6402912856)
 - [Fourth-round review: numerical fingerprint, full lookup audit and publish Phase 0b source](https://github.com/kaaburgh/apple-matrix-capabilities/issues/1#issuecomment-6403934918)
 
+
+## Implementation note: maintained Phase 0 utilities (PR A review)
+
+Original Phase 0a/0b experiments were scoped as disposable research spikes. After merging their reviewed source, PR A chose **reuse/maintenance model (b)**: `tools/phase0a_capture_spike.py` and `tools/phase0b_baseline.py` remain maintained dependencies while `probes/capture_lane.py` calls their capture/warmup/batch primitives. Do not delete or silently refactor those APIs. Frozen Phase 0b baseline source identity, machine measurements and SHA-256 (when collected) stay immutable; later revisions require new provenance. A PR A loop using the same MLX timing primitives establishes *reproducibility*, not an independent cross-check; use a distinct Instruments GPU interval to corroborate and rerun Phase 0b's multi-N `b` separately. See [PR A runbook](PR-A-FLOAT-CAPTURE.md). Historical 'disposable' text above describes initial scope, not present deletion policy.
