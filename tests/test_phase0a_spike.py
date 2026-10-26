@@ -170,6 +170,7 @@ class TestRunContract(unittest.TestCase):
         self.mx.eval = Mock()
         self.mx.gpu = "gpu"
         self.mx.new_stream = Mock(return_value="fresh_gpu_stream")
+        self.mx.default_stream = Mock(return_value="default_stream")
         self.mx.stream = Mock(side_effect=lambda stream: nullcontext())
         self.mx.synchronize = Mock()
         self.mx.clear_cache = Mock()
