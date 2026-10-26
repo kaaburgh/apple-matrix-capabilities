@@ -38,13 +38,15 @@ hosted GitHub CI.
 
 A validated invocation and short warm-up occur outside capture. The captured
 invocation is evaluated inside `start_capture`/`stop_capture`, then compared
-bit-for-bit with a previously validated identical dispatch **after** capture.
+bit-for-bit with a separate **pre-capture** dispatch **after** capture. The
+independent reference test is done by `check_tile()`; the later pre-capture
+invocation is not independently compared with NumPy.
 The script prints a sanitized JSON report on every exit, distinguishing
 `blocked` (exit 2), `failed` (exit 1) and
 `capture_written_replay_not_verified` (exit 0). A successful trace is
 still **not** a verified Xcode replay or hardware counter reading.
 `MTL_SHADER_VALIDATION` must be disabled; the status of the other Metal/MLX
-debug environment variables is recorded. The source hash, compiler, macOS,
+debug environment variables is recorded. The manifest records `relaxed_precision` and the exact `expected_kernel_name_contains` substring for locating the Xcode kernel. The offline Metal CLI is recorded as `metal_cli: present|missing`; the JIT capture can work without it, so absence alone does not block the spike. The source hash, compiler, macOS,
 device, GPU core count when available, and power metadata follow the upstream
 receipt's conventions.
 
@@ -55,19 +57,20 @@ The successful command means **only** that the trace bundle was created. An oper
 [Phase 0a macOS Metal diagnostic](../../.github/workflows/phase0a-macos.yml)
 runs for relevant PR changes and can also be dispatched manually after the
 workflow exists on the default branch. It compares GitHub-hosted
-`macos-26` and `xcode-27` **ARM64 M1 virtual machines**.
+`macos-26` and `xcode-27` **ARM64 virtual machines**. On the `xcode-27` runner the reported Metal architecture was **`air64_v27`**, a paravirtualized Metal device on an M1 host. This is a plumbing check, not evidence of physical M1 or M5 Max TensorOps behavior.
 
 - It locates an installed full Xcode 27, checks `xcrun metal` **by compiling
   and linking a minimal Metal shader**, and checks that Metal exposes a GPU.
   Some Xcode runner images omit the separately downloadable Metal Toolchain
   even though `xcodebuild -version` succeeds. A missing toolchain or GPU is
-  reported as **BLOCKED**, rather than an attempted successful capture.
+  **BLOCKED** on exploratory `macos-26`, but **fails CI** on the previously
+  working `xcode-27` runner (expected-ready regression).
 - When all prerequisites exist, CI installs `mlx==0.32.3` and NumPy,
   performs the fast `--shape check` FP16 capture, checks that a trace exists, confirms the captured output matches, and validates
   the script's status fields. A failed attempted capture **fails the job**.
   **No raw GPU trace, logs, or profiler screenshots are uploaded**;
   temporary local artifacts are deleted at job completion.
-- The job summary differentiates **BLOCKED**, **TRACE WRITTEN** and **FAILED**.
+- The job prints only sanitized status/stage/error and environment diagnostics; raw compiler stderr stays local. The job summary differentiates **BLOCKED**, **TRACE WRITTEN** and **FAILED**.
   A green result on a blocked runner is **not evidence of GPU execution**;
   even a written trace has not been opened/replayed in Xcode.
 - GitHub-hosted M1 execution cannot establish **M5 Max** Neural Accelerator
