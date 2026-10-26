@@ -64,10 +64,14 @@ class TestInputGuards(unittest.TestCase):
             ["--loop", "1", "--lane", "f16*f16->f32",
              "--output", "x.json"])
         args.batch = 8
-        with patch.object(app.platform, "system", return_value="Darwin"):
-            with patch.object(app.platform, "machine", return_value="arm64"):
-                with self.assertRaises(app.B.BlockedError):
-                    app.validate_mode(args, {"MTL_CAPTURE_ENABLED": "1"}, lane, None)
+        # Preflight now rejects debug flags in run() BEFORE importing MLX.
+        with patch.object(app, "validate_paths",
+                          return_value=(Path("m.json"), None)):
+            with patch.object(app.platform, "system", return_value="Darwin"):
+                with patch.object(app.platform, "machine", return_value="arm64"):
+                    report = app.run(args, env={"MTL_CAPTURE_ENABLED": "1"})
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["stage"], "preflight")
 
 
 class TestCaptureLifecycle(unittest.TestCase):
