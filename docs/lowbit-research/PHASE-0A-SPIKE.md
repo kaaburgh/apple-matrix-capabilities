@@ -2,7 +2,7 @@
 
 This **small, disposable manual experiment** implements only the first hardware feasibility step from [PLAN.md](PLAN.md) / [PHASE-0.md](PHASE-0.md), tracked by [issue #1](https://github.com/kaaburgh/apple-matrix-capabilities/issues/1).
 
-**Not a benchmark.** No automatic Neural Accelerator counters, ISA claims or steady-state rates. Linux CI checks only syntax and synthetic guard paths; **no Apple hardware result has been produced by this PR**.
+**Not a benchmark.** No automatic Neural Accelerator counters, ISA claims or steady-state rates. Linux CI checks syntax and CPU stubs. A previous hosted-M1 `xcode-27` Actions run successfully **created** a FP16 trace; that confirms capture plumbing only, not Xcode replay, an M5 Max run, or Neural Accelerator counters.
 
 ## On a real Apple Silicon Mac
 
@@ -15,12 +15,38 @@ python -m pip install 'mlx==0.32.3' numpy
 
 # In the repository root; pick an unused path (never overwrite):
 MTL_CAPTURE_ENABLED=1 python tools/phase0a_capture_spike.py \
-  --trace phase0a-f16.gputrace
+  --shape rate --trace phase0a-f16-rate.gputrace
 
-open phase0a-f16.gputrace
+open phase0a-f16-rate.gputrace
+
+# Optional quick two-threadgroup plumbing check (not useful NA profiling):
+MTL_CAPTURE_ENABLED=1 python tools/phase0a_capture_spike.py \
+  --shape check --trace phase0a-f16-check.gputrace
 ```
 
-The script reuses the unmodified `lane_sweep.py` FP16 lane, its **64×1024×256** correctness shape and **64×128×4** tile. It validates against the upstream NumPy reference, warms once outside capture and captures exactly one additional `mpp::tensor_ops::matmul2d` dispatch via stock MLX. On success it prints a **local-only** provenance JSON summary and creates a trace bundle.
+The script reuses the unmodified `lane_sweep.py` FP16 lane via `check_tile()`,
+with the **64×128×4** tile. Its default `--shape rate` checks the
+**64×1024×256** correctness shape and then checks/captures a single
+**2048×4096×4096** dispatch. This uses the same sequential RNG draws as
+the original check/rate protocol. At the 64×128×4 tile, the rate-shape
+kernel launches **1024 threadgroups** instead of two; this is much
+more appropriate for the M5 Max counter-feasibility gate.
+Both stages use the upstream NumPy reference and therefore the rate run
+performs a substantial CPU matrix multiply before capture. `--shape check`
+captures the smaller correctness-shape kernel and is the only shape run in
+hosted GitHub CI.
+
+A validated invocation and short warm-up occur outside capture. The captured
+invocation is evaluated inside `start_capture`/`stop_capture`, then compared
+bit-for-bit with a previously validated identical dispatch **after** capture.
+The script prints a sanitized JSON report on every exit, distinguishing
+`blocked` (exit 2), `failed` (exit 1) and
+`capture_written_replay_not_verified` (exit 0). A successful trace is
+still **not** a verified Xcode replay or hardware counter reading.
+`MTL_SHADER_VALIDATION` must be disabled; the status of the other Metal/MLX
+debug environment variables is recorded. The source hash, compiler, macOS,
+device, GPU core count when available, and power metadata follow the upstream
+receipt's conventions.
 
 The successful command means **only** that the trace bundle was created. An operator must verify in Xcode that it opens and replays, contains the expected `amc_...` kernel dispatch, and has useful profiler information. Document the *Xcode replay settings*. If the stock MLX wheel lacks source attribution, optionally use `-DMLX_METAL_DEBUG=ON` on the **same stock MLX tag**, recording the difference.
 
@@ -37,7 +63,7 @@ workflow exists on the default branch. It compares GitHub-hosted
   even though `xcodebuild -version` succeeds. A missing toolchain or GPU is
   reported as **BLOCKED**, rather than an attempted successful capture.
 - When all prerequisites exist, CI installs `mlx==0.32.3` and NumPy,
-  performs the single FP16 capture, checks that a trace exists and validates
+  performs the fast `--shape check` FP16 capture, checks that a trace exists, confirms the captured output matches, and validates
   the script's status fields. A failed attempted capture **fails the job**.
   **No raw GPU trace, logs, or profiler screenshots are uploaded**;
   temporary local artifacts are deleted at job completion.
@@ -70,7 +96,8 @@ CI deliberately does **not** mutate the runner's Xcode installation.
 - [x] A CPU-testable capture script exists without importing MLX on Linux.
 - [x] Input validation refuses missing capture opt-in, existing paths and non-Apple Silicon.
 - [x] Capture shutdown is protected by `finally`, including error paths.
-- [ ] Successfully create/replay an FP16 Metal TensorOps trace on actual Apple hardware.
+- [x] A hosted-M1 GitHub Actions run created a **check-shape** FP16 trace (without replay).
+- [ ] Successfully create **and replay** a rate-shape FP16 Metal TensorOps trace on a target M5 Max.
 - [ ] Identify real GPU/NA counters and scope in the relevant Xcode tools.
 - [ ] Record source hashes, observed results and blockers in issue #1.
 

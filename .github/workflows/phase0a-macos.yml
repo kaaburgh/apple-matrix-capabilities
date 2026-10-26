@@ -121,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           trace="$RUNNER_TEMP/phase0a-${{ matrix.runner }}.gputrace"
-          if ! python tools/phase0a_capture_spike.py --trace "$trace" \
+          if ! python tools/phase0a_capture_spike.py --shape check --trace "$trace" \
                 > "$RUNNER_TEMP/amc_capture_report.json" \
                 2> "$RUNNER_TEMP/amc_capture_errors.txt"; then
             echo "::error::FP16 capture failed; no raw trace/log will be published."
@@ -140,7 +140,12 @@ jobs:
           assert report["status"] == "capture_written_replay_not_verified"
           assert report["lane"] == "f16*f16->f32"
           assert report["dispatches_requested"] == 1
-          print("FP16 .gputrace written; Xcode replay and NA counters NOT verified.")
+          assert report["shape_choice"] == "check"
+          assert report["captured_output_equal"] is True
+          assert report["trace_replayed_in_xcode"] is False
+          assert report["counters_collected"] is False
+          print("Metal device architecture:", report.get("device", {}).get("architecture", "unknown"))
+          print("FP16 check-shape .gputrace written; Xcode replay and NA counters NOT verified.")
           PY
 
       - name: Write diagnostic outcome and delete local traces
