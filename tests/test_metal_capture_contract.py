@@ -75,7 +75,7 @@ class FakeMLX:
         finally:
             self.current = prev
 
-    def eval(self, output):
+    def eval(self, *outputs):
         self.current.commit()
 
     def synchronize(self, encoder):
@@ -126,6 +126,22 @@ class MetalContractTests(unittest.TestCase):
                            mode="default-stream")
         self.assertEqual(len(mx.traced()), 1)
         self.assertEqual(sum(x["dispatches"] for x in mx.traced()), 1)
+
+    def test_multiple_dispatches_fresh_stream_in_capture_window(self):
+        from capture_lane import capture_batch
+        mx = self.warmed_default()
+        capture_batch(mx, mx.dispatch, Path("batch.gputrace"), 3,
+                      "fresh-stream")
+        self.assertGreaterEqual(len(mx.traced()), 1)
+        self.assertEqual(sum(x["dispatches"] for x in mx.traced()), 3)
+
+    def test_multiple_dispatches_default_preflush_in_capture_window(self):
+        from capture_lane import capture_batch
+        mx = self.warmed_default()
+        capture_batch(mx, mx.dispatch, Path("batch.gputrace"), 3,
+                      "default-stream")
+        self.assertGreaterEqual(len(mx.traced()), 1)
+        self.assertEqual(sum(x["dispatches"] for x in mx.traced()), 3)
 
 
 if __name__ == "__main__":
