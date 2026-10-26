@@ -159,7 +159,7 @@ def fit_tn(observations: list[tuple[int, float]]) -> dict:
         "b_ols_standard_error_ms": math.sqrt(sigma2 / sxx),
         "r_squared": 1 - rss / sst if sst else None,
         "observations": count,
-        "warning": "Pooled OLS assumes independent homoscedastic samples; "
+        "warning": "Secondary pooled OLS assumes independent homoscedastic samples; "
                    "use per-repetition slope distribution for uncertainty. "
                    "Not single-dispatch GPU latency.",
     }
