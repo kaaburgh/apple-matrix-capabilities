@@ -1,0 +1,93 @@
+name: PR A float-lane capture and loop smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/pr-a-macos.yml
+      - probes/capture_lane.py
+      - probes/lane_sweep.py
+      - probes/_common.py
+      - tools/phase0a_capture_spike.py
+      - tools/phase0b_baseline.py
+      - tests/test_capture_lane.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  float-smoke:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check 'mlx==0.32.3' 'numpy>=2,<3'
+
+      - name: Check-only FP16 capture (bundle kept local)
+        env:
+          MTL_CAPTURE_ENABLED: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p experiments/ci
+          python probes/capture_lane.py --lane 'f16*f16->f32' \
+            --shape check --capture experiments/ci/f16.gputrace \
+            --output experiments/ci/capture.json \
+            > "$RUNNER_TEMP/pr_a_capture_stdout.txt" \
+            2> "$RUNNER_TEMP/pr_a_capture_stderr.txt"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("experiments/ci/capture.json").read_text())
+          assert report["status"] == "capture_written_replay_not_verified", (
+              report.get("status"), report.get("stage"), report.get("error"))
+          assert report["mode"] == "capture"
+          assert report["dispatches_requested"] == 1
+          assert report["replay"]["verified"] is False
+          assert "converged" not in report
+          assert report["checks"] and all(check["ok"] for check in report["checks"])
+          assert Path("experiments/ci/f16.gputrace").exists()
+          print("PR A: capture bundle created; Xcode replay/command contents UNVERIFIED.")
+          PY
+
+      - name: Uncaptured FP16 live loop (smoke, not a benchmark)
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u MTL_CAPTURE_ENABLED -u MTL_SHADER_VALIDATION \
+              -u MTL_DEBUG_LAYER -u METAL_DEVICE_WRAPPER_TYPE \
+            python probes/capture_lane.py --lane 'f16*f16->f32' \
+              --shape check --batch 3 --loop .5 \
+              --min-warmup-s .2 --max-warmup-s .8 --window-s .1 \
+              --output experiments/ci/loop.json \
+              > "$RUNNER_TEMP/pr_a_loop_stdout.txt" \
+              2> "$RUNNER_TEMP/pr_a_loop_stderr.txt"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("experiments/ci/loop.json").read_text())
+          assert report["status"] in ("observed_converged",
+                                       "observed_nonconverged_diagnostic"), (
+              report.get("status"), report.get("stage"), report.get("error"))
+          assert report["mode"] == "live_loop"
+          assert report["loop"]["batch"] == 3
+          assert report["loop"]["samples"]
+          assert report["warmup"]["raw_batches"]
+          assert report["loop"]["gpu_idle_fraction"] is None
+          assert report["loop"]["neural_accelerator_utilization"] is None
+          print("PR A: live loop ran; NO GPU rates/counters published.")
+          PY
+
+      - name: Keep diagnostics and traces on runner only
+        if: always()
+        shell: bash
+        run: |
+          rm -rf experiments/ci
+          rm -f "$RUNNER_TEMP/pr_a_capture_stdout.txt" "$RUNNER_TEMP/pr_a_capture_stderr.txt"
+          rm -f "$RUNNER_TEMP/pr_a_loop_stdout.txt" "$RUNNER_TEMP/pr_a_loop_stderr.txt"
+          echo "PR A hosted Apple Silicon smoke; no M5 Max performance, Xcode replay, or counter claims." >> "$GITHUB_STEP_SUMMARY"

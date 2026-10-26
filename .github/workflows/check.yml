@@ -25,4 +25,4 @@ jobs:
       - name: Validator regression tests
         run: python -m unittest discover -s tests -v
       - name: Probe script syntax
-        run: python -m py_compile probes/_common.py probes/lane_sweep.py probes/integer_lanes.py probes/geometry_sweep.py tools/phase0a_capture_spike.py tools/inspect_gpu_trace.py
+        run: python -m py_compile probes/_common.py probes/lane_sweep.py probes/integer_lanes.py probes/geometry_sweep.py tools/phase0a_capture_spike.py tools/inspect_gpu_trace.py tools/phase0b_baseline.py probes/capture_lane.py
