@@ -78,28 +78,44 @@ def allocation_guard(shape, memory, batch, mib):
     }
 
 
-def checked_context(ls, np, lane, tile, shape):
-    """Upstream intended-value correctness, lo then optional hi packing retry."""
-    failed = []
-    for order in ("lo", "hi"):
+class WrongResult(ValueError):
+    """Incorrect upstream intended-value result; preserve evidence in-place."""
+
+
+def checked_context(ls, np, lane, tile, shape, evidence=None):
+    """Match upstream FP4-only nibble fallback, only on CHK failure."""
+    if evidence is None:
+        evidence = {}
+    evidence.update({"packing": None, "checks": [],
+                     "packing_attempts": [], "failed_packing_attempts": []})
+    packed = (ls.lane_kind(ls.LANES[lane][0]) == "fp4"
+              or ls.lane_kind(ls.LANES[lane][2]) == "fp4")
+    for order in (("lo", "hi") if packed else ("lo",)):
+        evidence["packing_attempts"].append(order)
         rng = np.random.default_rng([ls.SEED, ls.LANE_INDEX[lane]])
-        checks = []
         ok, entry, ctx = ls.check_tile(
             lane, ls.TILES[0], ls.CHK, rng, order, stage="check_shape")
-        checks.append(ls.C.finite_check(entry))
+        check = ls.C.finite_check(entry)
+        check["order"] = order
+        check["exploratory"] = bool(packed and not ok)
+        evidence["checks"].append(check)
         if not ok:
-            failed.append({"order": order, "stage": "check_shape"})
+            evidence["failed_packing_attempts"].append(
+                {"order": order, "stage": "check_shape"})
             continue
+        evidence["packing"] = order
         if shape != ls.CHK or tile != ls.TILES[0]:
             del ctx
             stage = "rate_shape" if shape != ls.CHK else "check_shape_tile"
-            ok, entry, ctx = ls.check_tile(lane, tile, shape, rng, order, stage=stage)
-            checks.append(ls.C.finite_check(entry))
+            ok, entry, ctx = ls.check_tile(
+                lane, tile, shape, rng, order, stage=stage)
+            check = ls.C.finite_check(entry)
+            check["order"] = order
+            evidence["checks"].append(check)
             if not ok:
-                failed.append({"order": order, "stage": stage})
-                continue
-        return ctx, {"packing": order, "checks": checks, "failed_orders": failed}
-    raise ValueError("upstream intended-value checks failed for both packing orders")
+                raise WrongResult("target intended-value check failed")
+        return ctx, evidence
+    raise WrongResult("CHK intended-value check failed")
 
 
 def capture_batch(mx, factory, trace, batch, mode):
