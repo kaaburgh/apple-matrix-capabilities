@@ -11,3 +11,10 @@ __pycache__/
 /probes/integer_lanes.json
 /probes/geometry_sweep.json
 /REVIEW-DISCOURSE.md
+
+
+# Local-only research traces and exploratory measurements
+/experiments/
+*.gputrace/
+*.trace/
+/profiles/exports/

@@ -1,0 +1,221 @@
+name: Phase 0a macOS Metal diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/phase0a-macos.yml
+      - tools/phase0a_capture_spike.py
+      - docs/lowbit-research/PHASE-0A-SPIKE.md
+      - probes/lane_sweep.py
+      - probes/_common.py
+      - tests/test_phase0a_spike.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0a-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metal:
+    name: Metal feasibility (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            expect_ready: false
+          - runner: xcode-27
+            expect_ready: true
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Check Xcode, Metal toolchain and GPU
+        id: environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          blocked() {
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$1" >> "$GITHUB_OUTPUT"
+            if [[ "${{ matrix.expect_ready }}" == "true" ]]; then
+              echo "::error::Expected-ready runner ${{ matrix.runner }} lost required prerequisite: $1"
+              exit 1
+            fi
+            echo "::notice::Phase 0a BLOCKED on ${{ matrix.runner }}: $1"
+            exit 0
+          }
+
+          arch="$(uname -m)"
+          [[ "$arch" == "arm64" ]] || blocked "not_arm64"
+          echo "Runner: ${{ matrix.runner }}; OS: $(sw_vers -productVersion); arch: $arch"
+
+          # macos-26 may default to Xcode 26. Choose a full Xcode 27
+          # installation without altering the system-wide xcode-select setting.
+          selected=""
+          for app in /Applications/Xcode*.app; do
+            [[ -d "$app/Contents/Developer" ]] || continue
+            version="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | head -n 1 || true)"
+            if [[ "$version" == "Xcode 27" || "$version" == "Xcode 27."* ]]; then
+              selected="$app/Contents/Developer"
+              break
+            fi
+          done
+          [[ -n "$selected" ]] || blocked "xcode_27_unavailable"
+          echo "DEVELOPER_DIR=$selected" >> "$GITHUB_ENV"
+          echo "Selected Xcode: $(DEVELOPER_DIR="$selected" xcodebuild -version | tr '\n' ' ')"
+
+          # xcodebuild -version alone does not guarantee that Apple's separately
+          # distributed Metal Toolchain component is installed.
+          export DEVELOPER_DIR="$selected"
+          if ! xcrun --sdk macosx --find metal >/dev/null 2>&1; then
+            blocked "metal_toolchain_missing"
+          fi
+          cat > "$RUNNER_TEMP/amc_probe.metal" <<'METAL'
+          #include <metal_stdlib>
+          using namespace metal;
+          kernel void amc_probe(device uint *out [[buffer(0)]],
+                                uint tid [[thread_position_in_grid]]) {
+              if (tid == 0) out[0] = 1;
+          }
+          METAL
+          if ! xcrun --sdk macosx metal -c "$RUNNER_TEMP/amc_probe.metal" \
+                -o "$RUNNER_TEMP/amc_probe.air" >/dev/null 2>&1; then
+            blocked "metal_compilation_unavailable"
+          fi
+          if ! xcrun --sdk macosx metallib "$RUNNER_TEMP/amc_probe.air" \
+                -o "$RUNNER_TEMP/amc_probe.metallib" >/dev/null 2>&1; then
+            blocked "metallib_unavailable"
+          fi
+
+          cat > "$RUNNER_TEMP/amc_gpu.swift" <<'SWIFT'
+          import Foundation
+          import Metal
+          if MTLCreateSystemDefaultDevice() != nil {
+              print("Metal GPU available")
+              exit(0)
+          }
+          print("No Metal GPU exposed by the runner")
+          exit(2)
+          SWIFT
+          if ! xcrun swift "$RUNNER_TEMP/amc_gpu.swift" >/dev/null 2>&1; then
+            blocked "metal_gpu_unavailable_or_query_failed"
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "reason=all_prerequisites_available" >> "$GITHUB_OUTPUT"
+          echo "::notice::Phase 0a prerequisites available on ${{ matrix.runner }}; attempting FP16 capture."
+
+      - name: Set up Python 3.12
+        if: steps.environment.outputs.ready == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned MLX and NumPy
+        if: steps.environment.outputs.ready == 'true'
+        run: python -m pip install --disable-pip-version-check 'mlx==0.32.3' 'numpy>=2,<3'
+
+      - name: Exercise single FP16 capture (no trace upload)
+        id: capture
+        if: steps.environment.outputs.ready == 'true'
+        shell: bash
+        env:
+          MTL_CAPTURE_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          trace="$RUNNER_TEMP/phase0a-${{ matrix.runner }}.gputrace"
+          set +e
+          python tools/phase0a_capture_spike.py --shape check --trace "$trace" \
+                > "$RUNNER_TEMP/amc_capture_report.json" \
+                2> "$RUNNER_TEMP/amc_capture_errors.txt"
+          code=$?
+          set -e
+
+          # Print only sanitized structured fields; raw compiler stderr
+          # and GPU bundles must never leave this runner.
+          if [[ -s "$RUNNER_TEMP/amc_capture_report.json" ]]; then
+            python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) /
+                               "amc_capture_report.json").read_text())
+          assert report["status"] in ("blocked", "failed", "capture_written_replay_not_verified")
+          print("Phase 0a diagnostic:", json.dumps({
+              key: report.get(key) for key in
+              ("status", "stage", "error", "os", "toolchain", "metal_cli")
+          }, sort_keys=True))
+          print("Metal device architecture:", report.get("device", {}).get("architecture", "unknown"))
+          if report["status"] == "capture_written_replay_not_verified":
+              assert report["shape_choice"] == "check"
+              assert report["lane"] == "f16*f16->f32"
+              assert report["dispatches_requested"] == 1
+              assert report["captured_equals_precapture_dispatch"] is True
+              assert report["trace_replayed_in_xcode"] is False
+              assert report["counters_collected"] is False
+          PY
+          else
+            echo "::error::Sanitized diagnostic report missing."
+            exit 1
+          fi
+
+          if [[ "$code" -eq 0 && -e "$trace" ]]; then
+            echo "state=trace_written" >> "$GITHUB_OUTPUT"
+            echo "FP16 CHK .gputrace written; replay/NA counters NOT verified."
+          elif [[ "$code" -eq 2 ]]; then
+            echo "state=blocked" >> "$GITHUB_OUTPUT"
+            if [[ "${{ matrix.expect_ready }}" == "true" ]]; then
+              echo "::error::Capture preflight BLOCKED on expected-ready runner."
+              exit 1
+            fi
+            echo "::notice::Capture blocked at spike-level preflight."
+          else
+            echo "state=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::FP16 capture failed or trace missing (raw diagnostics withheld)."
+            exit 1
+          fi
+
+      - name: Write diagnostic outcome and delete local traces
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="${{ steps.environment.outputs.ready }}"
+          reason="${{ steps.environment.outputs.reason }}"
+          capture="${{ steps.capture.outputs.state }}"
+          capture_outcome="${{ steps.capture.outcome }}"
+          {
+            echo "## Phase 0a Metal diagnostic — ${{ matrix.runner }}"
+            echo
+            echo "| Check | Outcome |"
+            echo "| --- | --- |"
+            echo "| Prerequisites | $reason |"
+            if [[ "$ready" != "true" ]]; then
+              echo "| GPU capture | NOT RUN (environment blocked) |"
+            elif [[ "$capture" == "trace_written" ]]; then
+              echo "| GPU capture | TRACE WRITTEN; Xcode replay NOT VERIFIED |"
+            elif [[ "$capture" == "blocked" ]]; then
+              echo "| GPU capture | BLOCKED at spike preflight |"
+            elif [[ "$capture" == "failed" || "$capture_outcome" == "failure" ]]; then
+              echo "| GPU capture | FAILED (investigate) |"
+            else
+              echo "| GPU capture | NOT RUN (dependency/setup failure) |"
+            fi
+            echo
+            echo "No M5 Max Neural Accelerator counters, ISA or steady-state rate claims."
+            echo "Raw .gputrace bundles and runner-local diagnostic logs are not uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -rf "$RUNNER_TEMP/phase0a-${{ matrix.runner }}.gputrace" \
+                 "$RUNNER_TEMP/amc_capture_report.json" \
+                 "$RUNNER_TEMP/amc_capture_errors.txt" \
+                 "$RUNNER_TEMP/amc_probe.metal" \
+                 "$RUNNER_TEMP/amc_probe.air" \
+                 "$RUNNER_TEMP/amc_probe.metallib" \
+                 "$RUNNER_TEMP/amc_gpu.swift"
