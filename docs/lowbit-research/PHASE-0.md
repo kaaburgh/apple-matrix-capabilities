@@ -50,3 +50,5 @@ Open questions / blockers:
 ```
 
 Do not attach raw `.gputrace`, Instruments `.trace`, unrestricted process lists, home paths or credentials to this public repository.
+
+**PR A handoff clarification:** the checked-in Phase 0a and Phase 0b utilities are maintained source dependencies of the reusable PR A runner, not throwaway files. Each manifest preserves hashes. A Phase 0b fixed-N median is comparable to a PR A fixed-N median on the same physical SKU/shape/tile; a fitted `b` requires a separate multi-N Phase 0b run plus a truly different hardware observation such as the Instruments GPU-busy interval. See [PR A runbook](PR-A-FLOAT-CAPTURE.md).
