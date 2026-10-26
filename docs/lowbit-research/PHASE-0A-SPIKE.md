@@ -24,6 +24,39 @@ The script reuses the unmodified `lane_sweep.py` FP16 lane, its **64×1024×256*
 
 The successful command means **only** that the trace bundle was created. An operator must verify in Xcode that it opens and replays, contains the expected `amc_...` kernel dispatch, and has useful profiler information. Document the *Xcode replay settings*. If the stock MLX wheel lacks source attribution, optionally use `-DMLX_METAL_DEBUG=ON` on the **same stock MLX tag**, recording the difference.
 
+## Diagnostic GitHub Actions (not M5 Max profiling)
+
+[Phase 0a macOS Metal diagnostic](../../.github/workflows/phase0a-macos.yml)
+runs for relevant PR changes and can also be dispatched manually after the
+workflow exists on the default branch. It compares GitHub-hosted
+`macos-26` and `xcode-27` **ARM64 M1 virtual machines**.
+
+- It locates an installed full Xcode 27, checks `xcrun metal` **by compiling
+  and linking a minimal Metal shader**, and checks that Metal exposes a GPU.
+  Some Xcode runner images omit the separately downloadable Metal Toolchain
+  even though `xcodebuild -version` succeeds. A missing toolchain or GPU is
+  reported as **BLOCKED**, rather than an attempted successful capture.
+- When all prerequisites exist, CI installs `mlx==0.32.3` and NumPy,
+  performs the single FP16 capture, checks that a trace exists and validates
+  the script's status fields. A failed attempted capture **fails the job**.
+  **No raw GPU trace, logs, or profiler screenshots are uploaded**;
+  temporary local artifacts are deleted at job completion.
+- The job summary differentiates **BLOCKED**, **TRACE WRITTEN** and **FAILED**.
+  A green result on a blocked runner is **not evidence of GPU execution**;
+  even a written trace has not been opened/replayed in Xcode.
+- GitHub-hosted M1 execution cannot establish **M5 Max** Neural Accelerator
+  utilization, chip-specific counters, FP4/FP8 native execution, or
+  throughput. Those remain subject to the real-target manual gate.
+- If no GitHub Actions runs appear after pushing this workflow, verify
+  whether Actions are enabled in the fork's repository settings. A workflow
+  with `workflow_dispatch` can only be selected manually after the
+  workflow file is present on the default branch.
+
+To diagnose a local *missing* Metal Toolchain component, run
+`xcrun --sdk macosx --find metal`; if absent, the supported Xcode
+installation flow is `xcodebuild -downloadComponent MetalToolchain`.
+CI deliberately does **not** mutate the runner's Xcode installation.
+
 ## Follow-up: counter feasibility (manual, not implemented here)
 
 1. Inspect **Metal Debugger** for per-shader statistics and instruction mix, if available.
