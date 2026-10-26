@@ -15,9 +15,12 @@ python -m pip install 'mlx==0.32.3' numpy
 
 # In the repository root; pick an unused path (never overwrite):
 MTL_CAPTURE_ENABLED=1 python tools/phase0a_capture_spike.py \
-  --shape rate --trace phase0a-f16-rate.gputrace
+  --shape rate --trace phase0a-f16-rate-v2.gputrace
 
-open phase0a-f16-rate.gputrace
+# Xcode 27 gpudebug: distinguish empty trace from nonempty if supported.
+python tools/inspect_gpu_trace.py --trace phase0a-f16-rate-v2.gputrace
+
+open phase0a-f16-rate-v2.gputrace
 
 # Optional quick two-threadgroup plumbing check (not useful NA profiling):
 MTL_CAPTURE_ENABLED=1 python tools/phase0a_capture_spike.py \
@@ -85,6 +88,45 @@ To diagnose a local *missing* Metal Toolchain component, run
 `xcrun --sdk macosx --find metal`; if absent, the supported Xcode
 installation flow is `xcodebuild -downloadComponent MetalToolchain`.
 CI deliberately does **not** mutate the runner's Xcode installation.
+
+## Empty-capture correction (M3 Max, October 2026)
+
+The first physical M3 Max test produced a `.gputrace` that opened in Xcode
+but contained **zero command buffers and zero dispatch calls**. The old
+`capture_written_replay_not_verified` status and CI file-existence check
+never guaranteed trace contents.
+
+MLX 0.32.3's `CommandEncoder` creates a new Metal command buffer ahead of
+the next dispatch. If a warmed default stream is reused, capture can commit
+a buffer created **before** the capture interval. Apple's capture contract
+requires command buffers to be both **created and committed between capture
+start and stop**. The revised experiment therefore:
+
+1. Calls `mx.metal.start_capture()`.
+2. Creates `mx.new_stream(mx.gpu)` **within** the capture interval.
+3. Dispatches using `with mx.stream(capture_stream)`, then `mx.eval(result)`
+   and `mx.synchronize(capture_stream)` before stopping capture.
+4. Calls `stop_capture()` in `finally`.
+
+`mx.eval()` is already synchronous in upstream MLX. Synchronization is
+additional defensive sequencing, **not a proven explanation of the failure**.
+The new stream and its freshly created Metal command buffer are the material
+change. The mechanism is an evidence-backed hypothesis until the corrected
+M3 Max capture is opened and inspected.
+
+Run `tools/inspect_gpu_trace.py` after capture. Where Xcode 27's
+`gpudebug` works, it returns exit 0 for **nonempty** command buffers,
+exit 1 for an **empty** capture, and exit 2 for **unverified** (tool
+unavailable, unsupported output, etc.). It prints only sanitized counts;
+a trace bundle merely existing is not a positive result. For a completed
+feasibility check, verify **Command Buffers > 0** and **Dispatch Calls > 0**
+in Xcode, identify the expected `amc_...` dispatch and report the Xcode
+replay/counter status. The gpudebug CLI's buffer count alone does not prove
+the intended kernel is present.
+
+Re-run with a **new** path; do not overwrite the empty trace, which is
+useful local diagnostic evidence. Keep all raw traces on the Mac and
+do not attach them to public issues.
 
 ## Follow-up: counter feasibility (manual, not implemented here)
 
