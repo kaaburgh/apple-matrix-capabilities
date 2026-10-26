@@ -5,6 +5,7 @@
 This fork studies GPU execution of FP16/BF16, FP8, FP4 and integer TensorOps on Apple Silicon. The project aims to distinguish observed performance, Neural Accelerator activity, format conversion overhead and claims about undocumented hardware. **GPU instruction encodings / ISA reconstruction are not in v1 scope.**
 
 - [Full approved plan](PLAN.md): objectives, constraints, review findings, acceptance criteria, PR ordering and evidence requirements.
+- [Phase 0b baseline harness](PHASE-0B-HARNESS.md): reproducible uncaptured convergence and N-batch methodology (source/test scaffold; no GPU data yet).
 - [Phase 0 protocol](PHASE-0.md): executable checklist for the hardware/toolchain feasibility spike and an independently reproducible uncaptured baseline.
 - [GitHub issue #1](https://github.com/kaaburgh/apple-matrix-capabilities/issues/1): original discussion and review history. The repository documents are the versioned implementation reference.
 - [Upstream measurement methodology](../../METHODS.md): do not alter the stock protocol, published receipts or capability-matrix interpretation without an explicit separate change.

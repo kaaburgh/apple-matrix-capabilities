@@ -1,0 +1,95 @@
+name: Phase 0b macOS MLX smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/phase0b-macos.yml
+      - tools/phase0b_baseline.py
+      - tests/test_phase0b_baseline.py
+      - probes/lane_sweep.py
+      - probes/_common.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  small-check:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned stock MLX
+        run: python -m pip install --disable-pip-version-check 'mlx==0.32.3' 'numpy>=2,<3'
+      - name: Uncaptured CHK-only smoke on paravirtual Metal
+        id: smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p experiments/ci
+          set +e
+          python tools/phase0b_baseline.py --shape check --tile-a 0 \
+            --tile-b 1 --upstream-replica --reps 3 --min-warmup-s 0.2 --max-warmup-s 0.8 \
+            --window-s 0.1 --output-budget-mib 64 \
+            --output experiments/ci/phase0b-check.json \
+            > "$RUNNER_TEMP/phase0b_stdout.txt" \
+            2> "$RUNNER_TEMP/phase0b_stderr.txt"
+          code=$?
+          set -e
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("experiments/ci/phase0b-check.json")
+          if not path.is_file():
+              print("Phase 0b diagnostic: no structured JSON created")
+              raise SystemExit(1)
+          report = json.loads(path.read_text())
+          status = report.get("status")
+          print("Phase 0b diagnostic status:", status)
+          if status == "observed":
+              assert report["not_upstream_receipt"] is True
+              assert report["shape"] == [64, 1024, 256]
+              assert len(report["batch_timing"]["per_repetition_fits"]) == 3
+              assert report["batch_timing"]["chronological"]
+              assert report["warmup"]["raw_batches"]
+              assert report["upstream_protocol_replica"] is not None
+              assert len(report["upstream_protocol_replica"]["samples_ms"]) == 5
+              assert report["tile_b"] == [64, 64, 2]
+              assert report["matched_tile_control"]["A"]["eval_ms"]["samples_ms"]
+              assert report["matched_tile_control"]["B"]["eval_ms"]["samples_ms"]
+              assert report["warmup_b"]["raw_batches"]
+              assert report["batch_timing"]["b_repetition_distribution"]["median_by_order_ms_per_dispatch"]
+              assert report["batch_timing"]["timing_mode"] == (
+                  "construct_lazy_graph_outside_timer_then_time_mx_eval_and_sync")
+              print("Device architecture:", report.get("device", {}).get("architecture", "unknown"))
+              print("CHK-only protocol exercised; GPU rates deliberately not published.")
+          else:
+              print("Stage:", report.get("stage", "unknown"))
+              print("Error:", report.get("error", {}))
+              raise SystemExit(1)
+          PY
+          if [[ "$code" -ne 0 ]]; then
+            echo "::error::Phase 0b CHK smoke failed or blocked."
+            exit 1
+          fi
+      - name: Summarize without publishing timing values
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Phase 0b CHK-only smoke"
+            echo
+            echo "Runner: hosted paravirtual Metal (NOT M5 Max)."
+            echo "Job outcome: ${{ steps.smoke.outcome }}."
+            echo "No GPU rates, raw logs, result JSON or traces are uploaded."
+            echo "M5 Max RATE baseline and counter evidence remain uncollected."
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -rf experiments/ci "$RUNNER_TEMP/phase0b_stdout.txt" \
+                 "$RUNNER_TEMP/phase0b_stderr.txt"
