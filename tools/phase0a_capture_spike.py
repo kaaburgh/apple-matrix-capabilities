@@ -73,13 +73,15 @@ def xcode_version() -> str:
     return result.stdout.strip()
 
 
-def metal_toolchain() -> None:
+def metal_toolchain() -> str:
+    """Inventory the offline compiler; MLX runtime JIT may work without it."""
     try:
         subprocess.run(["xcrun", "--sdk", "macosx", "--find", "metal"],
                        text=True, capture_output=True, check=True, timeout=15)
     except (FileNotFoundError, subprocess.CalledProcessError,
-            subprocess.TimeoutExpired) as exc:
-        raise PreflightError("Metal Toolchain component unavailable") from exc
+            subprocess.TimeoutExpired):
+        return "missing"
+    return "present"
 
 
 def source_hashes(repo_root: Path) -> dict[str, str]:
@@ -160,7 +162,7 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
                            os.environ.get("MTL_CAPTURE_ENABLED"), trace_path)
         stage = "toolchain"
         xc = xcode_version()
-        metal_toolchain()
+        report["metal_cli"] = metal_toolchain()
         report["xcode"] = xc.splitlines()[0]
         report["xcode_build"] = xc.splitlines()[1] if len(xc.splitlines()) > 1 else "unknown"
 
@@ -189,7 +191,13 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
         tile = ls.TILES[0]  # 64x128x4
         rng = np.random.default_rng([ls.SEED, ls.LANE_INDEX[lane]])
         shape_tuple = ls.CHK if shape == "check" else ls.RATE
+        tag = "".join(ch if ch.isalnum() else "_" for ch in lane)
+        mt, nt, sg = tile
         report.update(lane=lane, shape=list(shape_tuple), tile=list(tile),
+                      relaxed_precision=ls.lane_relaxed(lane),
+                      expected_kernel_name_contains=(
+                          f"amc_{tag}_{shape_tuple[0]}x{shape_tuple[1]}x{shape_tuple[2]}_"
+                          f"{mt}_{nt}_{sg}"),
                       dispatches_requested=1)
 
         stage = "check"
@@ -210,9 +218,9 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
         def dispatch():
             return ls.call(ctx["kern"], ctx["inputs"], ctx["m"], ctx["n"], tile)
 
-        # Validate one of the same dispatches before capture; compare the
-        # captured result after capture with this verified invocation.
-        validated = np.array(dispatch())
+        # check_tile's own dispatch passed the NumPy-reference check.
+        # The later pre-capture invocation is compared only with the capture.
+        precapture = np.array(dispatch())
         mx.eval(dispatch())   # short compile/first-touch warm-up (not steady-state)
         if hasattr(mx, "clear_cache"):
             mx.clear_cache()  # cached intermediates only; ctx retains GPU inputs
@@ -224,12 +232,12 @@ def run(trace_path: Path, shape: str = "rate") -> dict:
 
         stage = "captured_output_check"
         actual = np.array(captured)
-        if not np.array_equal(validated, actual):
-            raise RuntimeError("Captured dispatch differs from verified dispatch")
+        if not np.array_equal(precapture, actual):
+            raise RuntimeError("Captured dispatch differs from pre-capture dispatch")
 
         report["status"] = "capture_written_replay_not_verified"
         report["stage"] = "done"
-        report["captured_output_equal"] = True
+        report["captured_equals_precapture_dispatch"] = True
         return report
     except Exception as exc:
         report["status"] = "blocked" if isinstance(exc, PreflightError) else "failed"

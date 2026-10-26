@@ -121,6 +121,7 @@ class TestRunContract(unittest.TestCase):
         self.ls.RATE = (2048, 4096, 4096)
         self.ls.SEED = 20261012
         self.ls.LANE_INDEX = {"f16*f16->f32": 5}
+        self.ls.lane_relaxed = lambda lane: True
         self.ls.C = types.SimpleNamespace(finite_check=lambda entry: entry)
         self.ls.check_tile = Mock(side_effect=self.good_check)
         self.ls.call = Mock(return_value=np.array([3, 4], dtype=np.int32))
@@ -139,7 +140,7 @@ class TestRunContract(unittest.TestCase):
             patch.object(spike.platform, "system", return_value="Darwin"),
             patch.object(spike.platform, "machine", return_value="arm64"),
             patch.object(spike, "xcode_version", return_value="Xcode 27.0\nBuild version TEST"),
-            patch.object(spike, "metal_toolchain"),
+            patch.object(spike, "metal_toolchain", return_value="present"),
             patch.object(spike, "_machine_metadata", return_value={"sources": {}})
         ]
         for item in patches:
@@ -181,11 +182,21 @@ class TestRunContract(unittest.TestCase):
         report = spike.run(self.trace, "check")
         self.assertEqual(report["status"], "capture_written_replay_not_verified")
         self.assertEqual(report["dispatches_requested"], 1)
-        self.assertTrue(report["captured_output_equal"])
+        self.assertTrue(report["captured_equals_precapture_dispatch"])
+        self.assertTrue(report["relaxed_precision"])
+        self.assertEqual(report["metal_cli"], "present")
+        self.assertEqual(report["expected_kernel_name_contains"],
+                         "amc_f16_f16__f32_64x1024x256_64_128_4")
         self.assertFalse(report["trace_replayed_in_xcode"])
         self.assertFalse(report["counters_collected"])
         self.assertNotIn("converged", report)
         self.mx.metal.start_capture.assert_called_once()
+
+    def test_no_offline_metal_cli_can_still_capture(self):
+        with patch.object(spike, "metal_toolchain", return_value="missing"):
+            report = spike.run(self.trace, "check")
+        self.assertEqual(report["status"], "capture_written_replay_not_verified")
+        self.assertEqual(report["metal_cli"], "missing")
 
     def test_missing_trace_is_failed_not_success(self):
         self.mx.metal.start_capture.side_effect = None
@@ -205,8 +216,13 @@ class TestRunContract(unittest.TestCase):
     def test_rate_runs_check_then_rate_with_same_rng(self):
         report = spike.run(self.trace, "rate")
         self.assertEqual(report["status"], "capture_written_replay_not_verified")
-        self.assertEqual([c.args[2] for c in self.ls.check_tile.call_args_list],
-                         [self.ls.CHK, self.ls.RATE])
+        calls = self.ls.check_tile.call_args_list
+        self.assertEqual([c.args[2] for c in calls], [self.ls.CHK, self.ls.RATE])
+        self.assertIs(calls[0].args[3], calls[1].args[3])
+        self.assertEqual([c.args[4] for c in calls], ["lo", "lo"])
+        self.assertTrue(all(c.args[1] == self.ls.TILES[0] for c in calls))
+        self.assertEqual(report["expected_kernel_name_contains"],
+                         "amc_f16_f16__f32_2048x4096x4096_64_128_4")
 
     def test_cli_returns_distinct_blocked_exit_and_json(self):
         from io import StringIO
