@@ -135,31 +135,74 @@ def capture_batch(mx, factory, trace, batch, mode):
         mx.metal.stop_capture()
 
 
-def loop_stability(samples, batch, window_s, tolerance):
-    """Assess every loop window, including the first ramp and late throttle."""
+def loop_stability(samples, batch, window_s, tolerance, seconds_elapsed=None):
+    """Length-independent drift check; retain fine windows as diagnostics.
+
+    Ten equal-duration segments (or fewer for short smokes) avoid the
+    extreme-value bias of max/min over hundreds of 0.2-s windows. The first
+    post-warmup batch is independently checked for an isolated cold ramp:
+    its impact must not disappear when averaged over a busy segment.
+    """
     import math
     import statistics
-    buckets = {}
-    for item in samples:
-        idx = int(item["offset_s"] / window_s)
-        buckets.setdefault(idx, []).append(item)
-    windows = []
-    for idx, group in sorted(buckets.items()):
-        per_call = sum(x["eval_ms"] for x in group) / (batch * len(group))
-        windows.append({"index": idx, "dispatches": batch * len(group),
-                        "mean_eval_ms_per_dispatch": per_call})
-    means = [x["mean_eval_ms_per_dispatch"] for x in windows]
-    contiguous = (len(windows) >= 3 and
-                  [x["index"] for x in windows] == list(range(windows[-1]["index"] + 1)))
-    stable = bool(contiguous and all(math.isfinite(x) and x > 0 for x in means)
-                  and (max(means) - min(means)) / statistics.median(means) <= tolerance)
-    return {"stable": stable, "windows": windows,
-            "criterion": "all_windows_range_over_median", "tolerance": tolerance,
-            "contiguous": contiguous}
+
+    windows_by_index = {}
+    for sample in samples:
+        idx = int(sample["offset_s"] / window_s)
+        windows_by_index.setdefault(idx, []).append(sample)
+    windows = [
+        {"index": idx, "dispatches": batch * len(group),
+         "mean_eval_ms_per_dispatch":
+             sum(x["eval_ms"] for x in group) / (batch * len(group))}
+        for idx, group in sorted(windows_by_index.items())
+    ]
+    count = min(10, len(samples))
+    duration = (seconds_elapsed if seconds_elapsed is not None else
+                (max((s["offset_s"] for s in samples), default=0.0) + window_s))
+    segments = [[] for _ in range(count)]
+    if count >= 3 and math.isfinite(duration) and duration > 0:
+        for sample in samples:
+            idx = min(count - 1, int(sample["offset_s"] * count / duration))
+            if idx >= 0:
+                segments[idx].append(sample)
+    segment_data = [
+        {"index": i, "dispatches": batch * len(group),
+         "mean_eval_ms_per_dispatch":
+             (sum(x["eval_ms"] for x in group) / (batch * len(group))
+              if group else None)}
+        for i, group in enumerate(segments)
+    ]
+    complete = count >= 3 and all(segments)
+    means = [x["mean_eval_ms_per_dispatch"] for x in segment_data]
+    range_ratio = ((max(means) - min(means)) / statistics.median(means)
+                   if complete and all(math.isfinite(x) and x > 0 for x in means)
+                   else None)
+
+    values = [x["eval_ms"] / batch for x in samples]
+    first_ratio = (values[0] / statistics.median(values[1:])
+                   if len(values) >= 3
+                   and all(math.isfinite(x) and x > 0 for x in values)
+                   else None)
+    # The first-sample alarm is a separate 10%-minimum diagnostic, NOT
+    # another global max/min across every noisy batch in a 600-second run.
+    first_threshold = 1.0 + max(0.10, 5 * tolerance)
+    first_spike = first_ratio is not None and first_ratio > first_threshold
+    stable = bool(range_ratio is not None and range_ratio <= tolerance
+                  and not first_spike)
+    return {
+        "stable": stable, "windows": windows, "segments": segment_data,
+        "segment_range_over_median": range_ratio,
+        "first_batch_over_rest_median": first_ratio,
+        "first_batch_spike": first_spike, "first_batch_ratio_threshold": first_threshold,
+        "criterion": "up_to_10_equal_time_segments_plus_first_batch_guard",
+        "tolerance": tolerance, "segments_populated": complete,
+        "contiguous": complete,  # compatibility: refers to segment coverage, not 0.2s bins
+    }
 
 
 def loop_batches(factory, synchronize, seconds, batch, warmup_config):
-    """Gap -> uninterrupted warmup + loop -> gap for Instruments."""
+    """Gap -> uninterrupted warmup + loop -> gap; GPU idle requires Instruments."""
+    import math
     import statistics
     time.sleep(.25)
     warm = B.warmup(factory, synchronize, n=batch, **warmup_config)
@@ -171,28 +214,42 @@ def loop_batches(factory, synchronize, seconds, batch, warmup_config):
                         **B.timed_batch(factory, synchronize, batch)})
     elapsed = (time.perf_counter_ns() - start) / 1e9
     time.sleep(.25)
-    stability = loop_stability(samples, batch, warmup_config["window_s"],
-                               warmup_config["tolerance"])
-    converged = bool(warm["converged"] and stability["stable"])
+    stability = loop_stability(
+        samples, batch, warmup_config["window_s"],
+        warmup_config["tolerance"], seconds_elapsed=elapsed)
+    host_converged = bool(warm["converged"] and stability["stable"])
     eval_ms = sum(r["eval_ms"] for r in samples)
+    construct_ms = sum(r["construct_ms"] for r in samples)
+    duty = (eval_ms / (elapsed * 1000) if elapsed > 0 else None)
+    duty_valid = duty is not None and math.isfinite(duty) and 0 <= duty <= 1.01
+    # Host-side eval+sync time is not device occupancy: a stable eval series
+    # can coincide with a GPU idle for most of a slow graph-construction loop.
+    duty_ok = bool(duty_valid and duty >= 0.90)
     return {
         "warmup": warm, "loop_stability": stability,
-        "warmup_converged": bool(warm["converged"]), "converged": converged,
-        "steady_state_claim_allowed": converged,
+        "warmup_converged": bool(warm["converged"]),
+        "converged": host_converged, "host_timing_converged": host_converged,
+        # No hardware GPU-idle trace is collected by this runner. Its
+        # results cannot self-certify sustained device-side activity.
+        "steady_state_claim_allowed": False,
+        "steady_state_pending": "Instruments GPU idle fraction and independent physical validation",
         "loop": {
             "seconds_requested": seconds, "seconds_host_elapsed": elapsed,
             "batch": batch, "batches": len(samples),
             "dispatches": batch * len(samples), "samples": samples,
-            "total_eval_ms": eval_ms,
-            "total_construct_ms": sum(r["construct_ms"] for r in samples),
+            "total_eval_ms": eval_ms, "total_construct_ms": construct_ms,
             "pre_post_idle_gap_s": .25,
-            "gpu_idle_fraction": None,
+            "host_eval_duty_fraction": duty if duty_valid else None,
+            "host_eval_duty_precheck_passed": duty_ok,
+            "host_eval_duty_minimum": 0.90,
+            "gpu_idle_fraction": None, "gpu_idle_fraction_verified": False,
             "gpu_idle_fraction_source": "not_measured_instruments_required",
             "neural_accelerator_utilization": None,
             "median_eval_ms_per_dispatch_stable_only": (
                 statistics.median(s["eval_ms"] / batch for s in samples)
-                if converged and samples else None),
-            "phase0b_per_n_comparator": "per_n[N].eval_ms.median / N",
+                if host_converged and samples else None),
+            "phase0b_per_n_comparator":
+                'batch_timing.per_n["N"]["eval_ms"]["median_ms"] / N',
             "tn_slope_b_ms_per_dispatch": None,
             "tn_slope_requires_separate_phase0b_and_gpu_interval": True,
         },
