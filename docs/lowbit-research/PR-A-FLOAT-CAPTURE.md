@@ -15,7 +15,10 @@ The runner imports the **stock** `probes/lane_sweep.py`. It uses the existing up
 ## Installation and local experiment paths
 
 ```sh
-git pull --ff-only
+# Before PR #5 is merged, explicitly fetch and execute the reviewed PR head.
+git fetch origin refs/pull/5/head
+git switch --detach FETCH_HEAD
+git rev-parse HEAD  # record this exact commit SHA with the experiment
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install 'mlx==0.32.3' 'numpy>=2,<3'
@@ -52,9 +55,9 @@ env -u MTL_CAPTURE_ENABLED -u MTL_SHADER_VALIDATION -u MTL_DEBUG_LAYER \
 ```
 
 **N=8 is a provisional option, not a chosen optimal M5 Max batch size.**
-Capture/debug/shader-validation/device-wrapper modes are rejected. Bounded warm-up uses the same Phase 0b per-batch, last-three-window convergence criterion; default ≥0.5 s and ≤8 s, last-three spread ≤2%. Whether convergence succeeds is explicitly recorded; failure makes loop output **diagnostic only**, not a steady-state measurement.
+Capture/debug/shader-validation/device-wrapper modes are rejected. Bounded warm-up uses the same Phase 0b per-batch, last-three-window criterion (default ≥0.5 s and ≤8 s, last-three spread ≤2%). The subsequent loop uses **up to ten equal-duration segments**, not a growing max/min over hundreds of short windows, to avoid length-dependent false nonconvergence. The original fine-grained windows remain diagnostic data. A **separate first-batch ratio** flags an isolated post-warmup slowdown exceeding max(10%, five times the window tolerance); the full-loop segment variation and first-batch check must both pass. A failure is diagnostic, not a claim of steady-state throughput.
 
-`--loop` constructs N independent lazy MLX dispatches per `mx.eval` synchronization, reports separate construction and eval+sync times and guards N × output bytes (default ≤512 MiB and ≤10% of detected RAM). A 250 ms quiet gap occurs **before warm-up**, followed by continuous warm-up and loop without a gap, then a final 250 ms gap. Full-loop stability examines every populated time window (including initial ramp and late throttling); only both stable loop and converged warm-up permit a steady-state claim. The full batch time series and window settings remain local. **GPU idle fraction and Neural Accelerator utilization are null, not guessed**: inspect the matching window in Metal System Trace, record fraction of GPU idle time next to utilization and include scope/sampling granularity. A live loop is **not** Xcode capture replay.
+`--loop` constructs N independent lazy MLX dispatches per `mx.eval` synchronization, reports separate construction and eval+sync times and guards N × output bytes (default ≤512 MiB and ≤10% of detected RAM). A 250 ms quiet gap occurs **before warm-up**, followed by continuous warm-up and loop without a gap, then a final 250 ms gap. The manifest's `converged` and `host_timing_converged` report **host timing stability only** (warm-up plus up-to-ten loop segments and the first-batch guard), never GPU residency. The `host_eval_duty_fraction` is a host-clock diagnostic: sum of eval+sync time divided by the loop wall interval, with a provisional 90% precheck; it is **not** hardware GPU utilization. Without an independently reviewed Instruments idle fraction, `steady_state_claim_allowed` is always false even if host timing is converged and the host duty precheck passes. The full batch time series and window settings remain local. **GPU idle fraction and Neural Accelerator utilization are null, not guessed**: inspect the matching window in Metal System Trace, record fraction of GPU idle time next to utilization and include scope/sampling granularity. A live loop is **not** Xcode capture replay.
 
 ## Recording a Metal System Trace
 
@@ -102,10 +105,10 @@ requires new evidence. The source hashes in each PR A manifest include both
 dependency files. Older docs using 'disposable' describe the original
 experiment scope, not permission to delete these code paths.
 
-A single-N loop cannot estimate Phase 0b's fitted T(N) slope `b`.
+A single-N loop cannot estimate Phase 0b's fitted T(N) slope `b`. This is a host-timing **candidate** until a physical-device Instruments idle measurement confirms sustained GPU work.
 The only like-for-like host-clock comparison is the **stable loop median
 `median_eval_ms_per_dispatch_stable_only`** against Phase 0b
-`batch_timing.per_n["N"].eval_ms.median / N` on the same shape, tile,
+`batch_timing.per_n["N"]["eval_ms"]["median_ms"] / N` on the same shape, tile,
 SKU, toolchain and batch N. The old aggregate `host_eval_dispatches_per_s`
 mixed ramp and fixed overhead and is no longer a benchmark metric.
 The `b` cross-check must separately rerun the source-pinned Phase 0b
@@ -125,5 +128,7 @@ Real-device manual gate (separate from code merge):
 - Inspect loop window and GPU idle fraction in Instruments; report nonconvergence without selecting a steady-state tile.
 - On the **same target M5 Max SKU**, compare FP16 loop results to the frozen Phase 0b reference: within predeclared ±5% or overlapping repeat uncertainty, otherwise investigate.
 - Keep raw `.gputrace` / `.trace` / local manifest files and machine-private diagnostics out of public commits; publish a reviewed derived summary in issue #1.
+
+Expected `WrongResult` (intended-value correctness mismatch) is summarized by sanitized JSON and does not print a traceback. Unexpected MLX/Metal errors print tracebacks to **local stderr**, which may contain absolute paths and private machine information: **never paste raw stderr into issues or PRs**. Share JSON `status/stage/error` or a carefully redacted excerpt instead.
 
 Do not use `receipts/` or `matrix/` for these experimental manifests. The script requires a **new** output filename and uses Phase 0b atomic no-overwrite publishing.
