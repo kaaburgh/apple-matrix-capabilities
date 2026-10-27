@@ -294,6 +294,80 @@ class TestLaneRun(unittest.TestCase):
         self.assertIsNone(report["loop"]["median_eval_ms_per_dispatch_stable_only"])
         self.assertEqual(events, ["idle", "warmup", "idle"])
 
+    def test_long_stationary_noisy_loop_is_not_length_biased(self):
+        import math
+        # 30 s of a stationary 16 ms batch with ±2% deterministic jitter:
+        # old all-0.2s-window max/min would fail on long noisy traces.
+        samples = [
+            {"offset_s": i * .016, "eval_ms": 16 * (1 + .02 * math.sin(i * .61)),
+             "construct_ms": .1, "n": 8}
+            for i in range(1875)
+        ]
+        result = app.loop_stability(samples, batch=8, window_s=.2,
+                                    tolerance=.02, seconds_elapsed=30.0)
+        self.assertTrue(result["stable"])
+        self.assertEqual(len(result["segments"]), 10)
+        self.assertGreater(len(result["windows"]), 100)
+
+    def test_isolated_slow_first_batch_not_diluted_into_segments(self):
+        samples = [
+            {"offset_s": i * .002, "eval_ms": 2.0 if i == 0 else 1.0,
+             "construct_ms": .5, "n": 1}
+            for i in range(1000)
+        ]
+        result = app.loop_stability(samples, batch=1, window_s=.2,
+                                    tolerance=.02, seconds_elapsed=2.0)
+        self.assertTrue(result["segments_populated"])
+        self.assertLess(result["segment_range_over_median"], .02)
+        self.assertTrue(result["first_batch_spike"])
+        self.assertEqual(result["first_batch_over_rest_median"], 2.0)
+        self.assertFalse(result["stable"])
+
+    def test_stable_host_eval_not_proof_of_gpu_busy(self):
+        # Batches synchronously evaluate in 1 ms each, while graph
+        # construction can account for 199 ms. Three timing segments appear
+        # stable, but the runner has no Instruments GPU-idle measurement.
+        warm = {"converged": True, "elapsed_s": .5, "raw_batches": []}
+        ticks = iter([0, 10_000_000, 10_000_000, 210_000_000,
+                      210_000_000, 410_000_000, 410_000_000,
+                      600_000_000, 600_000_000])
+        with patch.object(app.B, "warmup", return_value=warm):
+            with patch.object(app.B, "timed_batch", return_value={
+                    "eval_ms": 1.0, "construct_ms": 199.0}):
+                with patch.object(app.time, "sleep"):
+                    with patch.object(app.time, "perf_counter_ns",
+                                      side_effect=lambda: next(ticks)):
+                        result = app.loop_batches(
+                            lambda: None, lambda *a: None, .5, 1,
+                            {"min_s": .5, "max_s": 1.,
+                             "window_s": .2, "tolerance": .02})
+        self.assertTrue(result["host_timing_converged"])
+        self.assertFalse(result["steady_state_claim_allowed"])
+        self.assertFalse(result["loop"]["host_eval_duty_precheck_passed"])
+        self.assertLess(result["loop"]["host_eval_duty_fraction"], .01)
+        self.assertFalse(result["loop"]["gpu_idle_fraction_verified"])
+        self.assertIsNone(result["loop"]["gpu_idle_fraction"])
+
+    def test_bad_warmup_config_blocks_before_reference_or_import(self):
+        bad = self.args(capture=None, loop=1., window_s=2.,
+                        min_warmup_s=.5, max_warmup_s=8.)
+        result = app.run(bad, env={})
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["stage"], "preflight")
+        self.ls.check_tile.assert_not_called()
+        self.mx.device_info.assert_not_called()
+
+    def test_wrong_result_skips_local_traceback(self):
+        import io
+        from contextlib import redirect_stderr
+        self.ls.check_tile.side_effect = lambda *a, **kw: (
+            False, {"ok": False, "stage": "check_shape"}, {})
+        private_stderr = io.StringIO()
+        with redirect_stderr(private_stderr):
+            report = app.run(self.args(), env={"MTL_CAPTURE_ENABLED": "1"})
+        self.assertEqual(report["status"], "wrong")
+        self.assertEqual(private_stderr.getvalue(), "")
+
     def test_loop_warmup_converged_but_ramp_is_not_steady(self):
         samples = [{"offset_s": i * .1, "eval_ms": v, "n": 1}
                    for i, v in enumerate((2.0, 1.0, 1.0, 1.0))]
