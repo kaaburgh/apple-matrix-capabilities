@@ -44,6 +44,27 @@ def validate_paths(output, trace):
     return dest, target
 
 
+def validate_early_args(args):
+    """Refuse an invalid measurement protocol before MLX/NumPy references."""
+    import math
+    if args.batch is None or not 1 <= args.batch <= 16:
+        raise B.BlockedError("batch must be 1..16")
+    if not isinstance(args.output_budget_mib, int) or args.output_budget_mib < 1:
+        raise B.BlockedError("positive output budget required")
+    if args.capture is None:
+        values = (args.loop, args.min_warmup_s, args.max_warmup_s,
+                  args.window_s, args.tolerance)
+        if not all(isinstance(x, (float, int)) and math.isfinite(x)
+                   for x in values):
+            raise B.BlockedError("all timing settings must be finite")
+        if not 0 < args.loop <= 600:
+            raise B.BlockedError("live loop must be 0 < seconds <= 600")
+        if not (0 < args.window_s <= args.min_warmup_s <= args.max_warmup_s):
+            raise B.BlockedError("warmup requires 0 < window <= min <= max")
+        if not 0 < args.tolerance < 1:
+            raise B.BlockedError("convergence tolerance must be in (0, 1)")
+
+
 def validate_mode(args, env, ls, trace):
     if args.lane not in SUPPORTED or args.lane not in ls.LANES:
         raise B.BlockedError("unsupported lane for initial PR A")
@@ -276,6 +297,7 @@ def run(args, env=None):
             for path in SOURCES
         }
         dest, trace = validate_paths(args.output, args.capture)
+        validate_early_args(args)
         if trace is not None:
             A.validate_preflight(platform.system(), platform.machine(),
                                  env.get("MTL_CAPTURE_ENABLED"), trace)
@@ -356,8 +378,9 @@ def run(args, env=None):
                                   else "observed_nonconverged_diagnostic")
         return manifest
     except Exception as exc:
-        if not isinstance(exc, (B.BlockedError, A.PreflightError)):
-            # Private stderr only, never copy exception text into the manifest.
+        if not isinstance(exc, (B.BlockedError, A.PreflightError, WrongResult)):
+            # Expected correctness failures are already described by JSON checks.
+            # Tracebacks for unexpected errors are private local stderr only.
             traceback.print_exception(type(exc), exc, exc.__traceback__,
                                       file=sys.stderr)
         partial.update({
