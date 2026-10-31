@@ -179,3 +179,5 @@ do not attach them to public issues.
 - [ ] Record source hashes, observed results and blockers in issue #1.
 
 **No claims about availability or performance of native FP4/FP8 instructions are supported by this spike.**
+
+**Maintenance decision (PR A):** the initial *experiment* was disposable, but its reviewed fresh-stream capture implementation is now a maintained dependency of `probes/capture_lane.py`. Keep the original M3 Max evidence and source hashes; the capture SPIKE success is not itself validation of the new multi-lane runner. See [PR A runbook](PR-A-FLOAT-CAPTURE.md).
